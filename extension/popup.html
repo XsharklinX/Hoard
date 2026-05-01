@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hoard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 340px;
+      min-height: 200px;
+      background: #0e0e10;
+      color: #e2e2e8;
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      font-size: 13px;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid #1e1e24;
+    }
+    .logo { width: 24px; height: 24px; border-radius: 6px; }
+    .header h1 { font-size: 15px; font-weight: 700; color: #f0f0f4; flex: 1; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #444;
+      transition: background 0.3s;
+    }
+    .status-dot.online  { background: #4ade80; box-shadow: 0 0 6px #4ade8066; }
+    .status-dot.offline { background: #f87171; }
+
+    /* ── Save current page ── */
+    .save-bar {
+      padding: 12px 14px;
+      border-bottom: 1px solid #1e1e24;
+    }
+    .url-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .url-input {
+      flex: 1;
+      background: #18181c;
+      border: 1px solid #2a2a32;
+      border-radius: 8px;
+      padding: 7px 10px;
+      color: #e2e2e8;
+      font-size: 12px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .url-input:focus { border-color: #c9952a; }
+    .btn-save {
+      background: #c9952a;
+      color: #0e0e10;
+      border: none;
+      border-radius: 8px;
+      padding: 7px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .btn-save:hover   { background: #e0a830; }
+    .btn-save:active  { transform: scale(0.97); }
+    .btn-save:disabled { background: #443520; color: #7a6040; cursor: not-allowed; }
+
+    .save-current {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+      padding: 7px 10px;
+      background: #18181c;
+      border: 1px solid #2a2a32;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      width: 100%;
+      text-align: left;
+    }
+    .save-current:hover { border-color: #c9952a33; background: #1e1c14; }
+    .save-current .page-favicon {
+      width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0;
+      background: #2a2a32;
+    }
+    .save-current .page-title {
+      flex: 1; font-size: 12px; color: #a0a0b0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .save-current .save-label {
+      font-size: 11px; font-weight: 600; color: #c9952a; flex-shrink: 0;
+    }
+
+    /* ── Toast ── */
+    .toast {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      margin: 0 14px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+    .toast.success { display: flex; background: #0d2b1a; color: #4ade80; border: 1px solid #14532d44; }
+    .toast.error   { display: flex; background: #2b0d0d; color: #f87171; border: 1px solid #7f1d1d44; }
+
+    /* ── Recent ── */
+    .section-title {
+      padding: 10px 14px 6px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #555568;
+    }
+
+    .recent-list { padding: 0 8px 10px; }
+
+    .recent-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 8px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .recent-item:hover { background: #18181c; }
+
+    .recent-icon {
+      width: 28px; height: 28px;
+      border-radius: 7px;
+      background: #18181c;
+      border: 1px solid #22222a;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; overflow: hidden;
+    }
+    .recent-icon img { width: 16px; height: 16px; object-fit: contain; }
+    .recent-icon .type-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+    .dot-link  { background: #38bdf8; }
+    .dot-note  { background: #4ade80; }
+    .dot-image { background: #c084fc; }
+    .dot-code  { background: #fbbf24; }
+
+    .recent-info { flex: 1; min-width: 0; }
+    .recent-title {
+      font-size: 12px; font-weight: 500; color: #d0d0dc;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .recent-meta {
+      font-size: 10px; color: #555568; margin-top: 1px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    .open-app-btn {
+      display: block;
+      width: calc(100% - 28px);
+      margin: 4px 14px 14px;
+      padding: 9px;
+      background: #18181c;
+      border: 1px solid #2a2a32;
+      border-radius: 10px;
+      color: #888899;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: center;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .open-app-btn:hover { border-color: #c9952a44; color: #c9952a; }
+
+    .offline-msg {
+      padding: 20px 16px;
+      text-align: center;
+      color: #555568;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .offline-msg strong { color: #f87171; display: block; margin-bottom: 4px; }
+
+    .spinner {
+      display: inline-block;
+      width: 12px; height: 12px;
+      border: 2px solid #333;
+      border-top-color: #c9952a;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <div class="header">
+    <img class="logo" src="icon.png" alt="Hoard">
+    <h1>Hoard</h1>
+    <div class="status-dot" id="statusDot"></div>
+  </div>
+
+  <!-- Content when online -->
+  <div id="onlineView" style="display:none">
+    <!-- Save bar -->
+    <div class="save-bar">
+      <!-- Save current tab button -->
+      <button class="save-current" id="saveCurrentBtn">
+        <img class="page-favicon" id="pageFavicon" src="" alt="">
+        <span class="page-title" id="pageTitle">Loading current page…</span>
+        <span class="save-label">Save ↗</span>
+      </button>
+
+      <!-- Manual URL input -->
+      <div class="url-row" style="margin-top:8px">
+        <input class="url-input" id="urlInput" type="url" placeholder="Or paste any URL…">
+        <button class="btn-save" id="saveUrlBtn">Save</button>
+      </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div class="toast" id="toast"></div>
+
+    <!-- Recent items -->
+    <div class="section-title">Recently saved</div>
+    <div class="recent-list" id="recentList"></div>
+
+    <!-- Open app button -->
+    <button class="open-app-btn" id="openAppBtn">Open Hoard app ↗</button>
+  </div>
+
+  <!-- Content when offline -->
+  <div id="offlineView" style="display:none">
+    <div class="offline-msg">
+      <strong>Hoard is not running</strong>
+      Open the Hoard app on your computer to start saving content from the browser.
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

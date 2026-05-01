@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Save to Hoard",
+  "version": "1.1",
+  "description": "Save links, images and videos directly to your local Hoard vault. Right-click anything on any page.",
+  "permissions": [
+    "contextMenus",
+    "activeTab"
+  ],
+  "action": {
+    "default_title": "Hoard",
+    "default_icon": "icon.png",
+    "default_popup": "popup.html"
+  },
+  "host_permissions": [
+    "http://127.0.0.1:43210/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  }
+}

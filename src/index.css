@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html, body, #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    @apply bg-base text-text-primary font-sans antialiased;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-text-muted;
+  }
+}
+
+@layer components {
+  .input {
+    @apply w-full px-3 py-2 rounded-lg text-sm
+      bg-card border border-border text-text-primary placeholder-text-muted
+      focus:outline-none focus:border-gold/50 focus:ring-1 focus:ring-gold/20
+      transition-colors;
+  }
+
+  select.input {
+    @apply appearance-none cursor-pointer;
+  }
+
+  .sidebar {
+    /* allow dragging the window from the sidebar */
+    -webkit-app-region: drag;
+  }
+  .sidebar button,
+  .sidebar a {
+    -webkit-app-region: no-drag;
+  }
+}
+
+/* Markdown inside cards */
+.prose-xs p { @apply text-xs leading-relaxed mb-2; }
+.prose-xs h1, .prose-xs h2, .prose-xs h3 { @apply font-semibold text-text-primary mb-1 mt-2; }
+.prose-xs code { @apply bg-border text-gold px-1 rounded text-[10px] font-mono; }
+.prose-xs pre { @apply bg-border rounded p-2 text-[10px] font-mono overflow-x-auto mb-2; }
+.prose-xs ul { @apply list-disc pl-4 mb-2; }
+.prose-xs ol { @apply list-decimal pl-4 mb-2; }
+.prose-xs a { @apply text-blue-400 underline; }

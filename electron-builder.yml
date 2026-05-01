@@ -1,0 +1,30 @@
+appId: com.hoard.app
+productName: Hoard
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - out/**/*
+  - '!**/{.eslintrc.js,eslint.config.mjs,.prettier*,.git,.gitignore}'
+extraResources:
+  - from: resources/sql-wasm.wasm
+    to: sql-wasm.wasm
+npmRebuild: false
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+win:
+  executableName: Hoard
+  icon: resources/icon.ico
+mac:
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSCameraUsageDescription: Application requests access to the device's camera.
+    NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+linux:
+  target:
+    - AppImage
+    - snap
+    - deb
+  maintainer: electronjs.org
+  category: Utility
