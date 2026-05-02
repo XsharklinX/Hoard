@@ -1,8 +1,11 @@
 import { app, BrowserWindow, nativeTheme, protocol, net, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
-import { initDb } from './db'
-import { registerHandlers } from './handlers'
+import { autoUpdater } from 'electron-updater'
+import { initDb, saveDb } from './db'
+import { registerHandlers, setNeedsPassword } from './handlers'
 import { startLocalServer } from './server'
+import { setMainWindow, sendToRenderer } from './window'
+import { shutdownOcrWorker } from './ocr'
 import icon from '../../resources/icon.png?asset'
 
 protocol.registerSchemesAsPrivileged([
@@ -68,6 +71,7 @@ function createWindow(): void {
     }
   })
 
+  setMainWindow(mainWindow)
   mainWindow.on('ready-to-show', () => mainWindow?.show())
 
   // ── Minimize to tray instead of closing ──────────────────────────────────────
@@ -83,7 +87,11 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.on('closed', () => { mainWindow = null })
+  mainWindow.on('closed', () => { mainWindow = null; setMainWindow(null) })
+
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    console.log(`[Renderer] ${message} (${sourceId}:${line})`);
+  })
 
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
   if (rendererUrl) {
@@ -94,30 +102,61 @@ function createWindow(): void {
   }
 }
 
+// ── Auto-updater ──────────────────────────────────────────────────────────────
+function setupAutoUpdater(): void {
+  if (!app.isPackaged) return   // only active in production builds
+
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('update-available', (info) => {
+    sendToRenderer('updater:available', { version: info.version })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    sendToRenderer('updater:downloaded', { version: info.version })
+  })
+
+  autoUpdater.on('error', (err) => {
+    console.error('[updater]', err.message)
+  })
+
+  // Check on startup, then every 4 hours
+  autoUpdater.checkForUpdates().catch(() => {})
+  setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 4 * 60 * 60 * 1000)
+}
+
 app.whenReady().then(async () => {
   protocol.handle('hoard', (request) => {
     let filePath = request.url.slice('hoard://'.length)
     if (process.platform === 'win32' && filePath.startsWith('/')) {
-      filePath = filePath.slice(1) // Remove leading slash for Windows paths
+      filePath = filePath.slice(1)
     }
     filePath = decodeURIComponent(filePath)
     return net.fetch('file:///' + filePath)
   })
 
-  await initDb()
+  const { needsPassword } = await initDb()
+  setNeedsPassword(needsPassword)
   registerHandlers()
   startLocalServer()
   createTray()
   createWindow()
+  setupAutoUpdater()
 
   app.on('activate', () => {
-    // macOS: clicking dock icon re-opens window
     if (mainWindow) {
       mainWindow.show()
     } else {
       createWindow()
     }
   })
+})
+
+// Save DB before quitting (handles force-quit / system shutdown)
+app.on('before-quit', () => {
+  try { saveDb() } catch { /* ignore */ }
+  shutdownOcrWorker().catch(() => {})
 })
 
 // Never quit when all windows close — we live in the tray

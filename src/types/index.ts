@@ -3,6 +3,11 @@ export interface AppSettings {
   showReadingTime: boolean
   defaultItemType: 'link' | 'note' | 'image' | 'code'
   compactView: boolean
+  encryptionEnabled: boolean
+  autoLockMinutes: number
+  autoBackupEnabled: boolean
+  autoBackupPath: string
+  autoBackupIntervalDays: number
 }
 
 export interface Vault {
@@ -43,6 +48,8 @@ export interface Item {
   favicon: string | null
   reading_time: number | null
   code_lang: string | null
+  archive_path: string | null
+  archive_status: 'pending' | 'done' | 'failed' | null
   is_pinned: 0 | 1
   created_at: number
   updated_at: number
@@ -74,6 +81,12 @@ export interface UrlMetadata {
 
 export type ItemType = Item['type']
 
+export interface SecurityStatus {
+  locked: boolean
+  encryptionEnabled: boolean
+  hasEncryptedDb: boolean
+}
+
 declare global {
   interface Window {
     api: {
@@ -96,6 +109,10 @@ declare global {
         update: (id: number, data: Partial<CreateItemData>) => Promise<Item>
         pin: (id: number, pinned: boolean) => Promise<void>
         delete: (id: number) => Promise<void>
+        move:         (id: number, targetVaultId: number, targetFolderId?: number | null) => Promise<Item>
+        copy:         (id: number, targetVaultId: number, targetFolderId?: number | null) => Promise<Item>
+        duplicate:    (id: number) => Promise<Item>
+        folderCounts: (vaultId: number) => Promise<Record<number, number>>
       }
       tags: {
         list: (vaultId: number) => Promise<Tag[]>
@@ -113,12 +130,25 @@ declare global {
         fetchMetadata: (url: string) => Promise<UrlMetadata>
         saveImage: (filePath: string) => Promise<string>
         openImageDialog: () => Promise<string | null>
-        openUrl: (url: string) => Promise<void>
+        openUrl:      (url: string)        => Promise<void>
+        exportImage:  (srcPath: string)    => Promise<{ success?: boolean; cancelled?: boolean; filePath?: string }>
+        exportImages: (srcPaths: string[]) => Promise<{ success?: boolean; cancelled?: boolean; copied?: number; folder?: string }>
       }
       bookmarks: {
         import: (vaultId: number) => Promise<{ count: number; cancelled?: boolean }>
       }
-      // Push events: main → renderer (extension server notifications)
+      security: {
+        getStatus: () => Promise<SecurityStatus>
+        unlock: (password: string) => Promise<{ success: boolean; error?: string }>
+        verifyPassword: (password: string) => Promise<boolean>
+        enableEncryption: (password: string) => Promise<{ success: boolean }>
+        disableEncryption: (password: string) => Promise<{ success: boolean; error?: string }>
+        changePassword: (oldPw: string, newPw: string) => Promise<{ success: boolean; error?: string }>
+      }
+      backup: {
+        export: () => Promise<{ success?: boolean; cancelled?: boolean; path?: string }>
+        import: () => Promise<{ success?: boolean; cancelled?: boolean }>
+      }
       on:  (channel: string, cb: (...args: unknown[]) => void) => ((...args: unknown[]) => void)
       off: (channel: string, handler: (...args: unknown[]) => void) => void
     }

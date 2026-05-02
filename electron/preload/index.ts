@@ -16,12 +16,16 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   items: {
-    counts: (vaultId: number)               => ipcRenderer.invoke('item:counts', vaultId),
-    list:   (params: unknown)               => ipcRenderer.invoke('item:list', params),
-    create: (data: unknown)                 => ipcRenderer.invoke('item:create', data),
-    update: (id: number, data: unknown)     => ipcRenderer.invoke('item:update', id, data),
-    pin:    (id: number, pinned: boolean)   => ipcRenderer.invoke('item:pin', id, pinned),
-    delete: (id: number)                    => ipcRenderer.invoke('item:delete', id)
+    counts: (vaultId: number)                                                                      => ipcRenderer.invoke('item:counts', vaultId),
+    list:   (params: unknown)                                                                      => ipcRenderer.invoke('item:list', params),
+    create: (data: unknown)                                                                        => ipcRenderer.invoke('item:create', data),
+    update: (id: number, data: unknown)                                                            => ipcRenderer.invoke('item:update', id, data),
+    pin:    (id: number, pinned: boolean)                                                          => ipcRenderer.invoke('item:pin', id, pinned),
+    delete: (id: number)                                                                           => ipcRenderer.invoke('item:delete', id),
+    move:         (id: number, targetVaultId: number, targetFolderId?: number | null)    => ipcRenderer.invoke('item:move', id, targetVaultId, targetFolderId),
+    copy:         (id: number, targetVaultId: number, targetFolderId?: number | null)    => ipcRenderer.invoke('item:copy', id, targetVaultId, targetFolderId),
+    duplicate:    (id: number)                                                           => ipcRenderer.invoke('item:duplicate', id),
+    folderCounts: (vaultId: number)                                                      => ipcRenderer.invoke('item:folder-counts', vaultId)
   },
 
   tags: {
@@ -39,17 +43,33 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   util: {
-    fetchMetadata:   (url: string)      => ipcRenderer.invoke('util:fetch-metadata', url),
-    saveImage:       (filePath: string) => ipcRenderer.invoke('util:save-image', filePath),
-    openImageDialog: ()                 => ipcRenderer.invoke('util:open-image-dialog'),
-    openUrl:         (url: string)      => ipcRenderer.invoke('util:open-url', url)
+    fetchMetadata:   (url: string)          => ipcRenderer.invoke('util:fetch-metadata', url),
+    saveImage:       (filePath: string)     => ipcRenderer.invoke('util:save-image', filePath),
+    openImageDialog: ()                     => ipcRenderer.invoke('util:open-image-dialog'),
+    openUrl:         (url: string)          => ipcRenderer.invoke('util:open-url', url),
+    exportImage:     (srcPath: string)      => ipcRenderer.invoke('util:export-image', srcPath),
+    exportImages:    (srcPaths: string[])   => ipcRenderer.invoke('util:export-images', srcPaths)
   },
 
   bookmarks: {
     import: (vaultId: number) => ipcRenderer.invoke('bookmarks:import', vaultId)
   },
 
-  // Push events from main process → renderer (used by the extension server)
+  security: {
+    getStatus:         ()                                          => ipcRenderer.invoke('security:get-status'),
+    unlock:            (password: string)                          => ipcRenderer.invoke('security:unlock', password),
+    verifyPassword:    (password: string)                          => ipcRenderer.invoke('security:verify-password', password),
+    enableEncryption:  (password: string)                          => ipcRenderer.invoke('security:enable-encryption', password),
+    disableEncryption: (password: string)                          => ipcRenderer.invoke('security:disable-encryption', password),
+    changePassword:    (oldPw: string, newPw: string)              => ipcRenderer.invoke('security:change-password', oldPw, newPw)
+  },
+
+  backup: {
+    export: () => ipcRenderer.invoke('backup:export'),
+    import: () => ipcRenderer.invoke('backup:import')
+  },
+
+  // Push events from main process → renderer
   on:  (channel: string, cb: (...args: unknown[]) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, ...args: unknown[]) => cb(...args)
     ipcRenderer.on(channel, handler)
@@ -59,3 +79,5 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.removeListener(channel, handler as never)
   }
 })
+
+// touch

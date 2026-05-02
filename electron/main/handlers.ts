@@ -4,8 +4,14 @@ import fs from 'fs'
 import https from 'https'
 import http from 'http'
 import { URL } from 'url'
-import { vaultQueries, folderQueries, itemQueries, tagQueries, getImagesDir, CreateItemData } from './db'
+import { vaultQueries, folderQueries, itemQueries, tagQueries, getImagesDir, CreateItemData,
+         initDb, enableEncryption, disableEncryption, verifyPassword, hasEncryptedDb, isEncryptionEnabled } from './db'
 import { loadSettings, saveSettings } from './settings'
+import { sendToRenderer } from './window'
+import { exportBackup, importBackup } from './backup'
+
+let _needsPassword = false
+export function setNeedsPassword(v: boolean): void { _needsPassword = v }
 
 export function registerHandlers(): void {
   // ── Vaults ──────────────────────────────────────────────────────────────────
@@ -91,6 +97,41 @@ export function registerHandlers(): void {
 
   ipcMain.handle('util:open-url', (_e, url: string) => { shell.openExternal(url) })
 
+  // ── Image export ──────────────────────────────────────────────────────────────
+  ipcMain.handle('util:export-image', async (_e, srcPath: string) => {
+    if (!fs.existsSync(srcPath)) return { cancelled: true }
+    const ext  = path.extname(srcPath) || '.jpg'
+    const base = path.basename(srcPath, ext)
+    const win = require('electron').BrowserWindow.getFocusedWindow()
+    const result = await dialog.showSaveDialog(win || undefined as any, {
+      title: 'Save image',
+      defaultPath: `${base}${ext}`,
+      filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] }]
+    })
+    if (result.canceled || !result.filePath) return { cancelled: true }
+    fs.copyFileSync(srcPath, result.filePath)
+    return { success: true, filePath: result.filePath }
+  })
+
+  ipcMain.handle('util:export-images', async (_e, srcPaths: string[]) => {
+    const existing = srcPaths.filter((p) => fs.existsSync(p))
+    if (!existing.length) return { cancelled: true }
+    const win = require('electron').BrowserWindow.getFocusedWindow()
+    const result = await dialog.showOpenDialog(win || undefined as any, {
+      title: 'Choose folder to save images',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (result.canceled || !result.filePaths.length) return { cancelled: true }
+    const destDir = result.filePaths[0]
+    let copied = 0
+    for (const src of existing) {
+      const base = path.basename(src)
+      const dest = path.join(destDir, base)
+      try { fs.copyFileSync(src, dest); copied++ } catch { /* skip */ }
+    }
+    return { success: true, copied, folder: destDir }
+  })
+
   // ── Bookmarks import ────────────────────────────────────────────────────────
   ipcMain.handle('bookmarks:import', async (_e, vaultId: number) => {
     const result = await dialog.showOpenDialog({
@@ -110,7 +151,11 @@ export function registerHandlers(): void {
 
     // Throttled background enrichment: 5 concurrent requests max
     const enrichQueue = [...bookmarks.map((_, i) => i)]
-    const enriched = itemQueries.list({ vaultId }).slice(-bookmarks.length).reverse()
+    const enriched = itemQueries.list({ vaultId }).slice(-bookmarks.length).reverse() as unknown as
+      Array<{ id: number; url: string | null; title: string | null }>
+
+    let enrichedCount = 0
+    const total = bookmarks.length
 
     async function runPool(concurrency: number) {
       const worker = async () => {
@@ -119,18 +164,21 @@ export function registerHandlers(): void {
           const item = enriched[idx]
           if (!item?.url) continue
           try {
-            const meta = await fetchUrlMetadata(item.url as string)
-            itemQueries.update(item.id as number, {
-              title: (meta.title !== item.url ? meta.title : undefined) || item.title as string,
+            const meta = await fetchUrlMetadata(item.url)
+            itemQueries.update(item.id, {
+              title: (meta.title !== item.url ? meta.title : undefined) || item.title || undefined,
               content: meta.description,
               favicon: meta.favicon,
               readingTime: meta.readingTime,
               imagePath: meta.thumbnailPath
             })
           } catch { /* skip silently */ }
+          enrichedCount++
+          sendToRenderer('bookmarks:progress', { done: enrichedCount, total })
         }
       }
       await Promise.all(Array.from({ length: concurrency }, worker))
+      sendToRenderer('bookmarks:progress', { done: total, total, finished: true })
     }
 
     // Fire and forget — don't block the IPC response
@@ -138,6 +186,85 @@ export function registerHandlers(): void {
 
     return { count: bookmarks.length }
   })
+
+  // ── Security ─────────────────────────────────────────────────────────────────
+  ipcMain.handle('security:get-status', () => ({
+    locked:            _needsPassword,
+    encryptionEnabled: isEncryptionEnabled(),
+    hasEncryptedDb:    hasEncryptedDb()
+  }))
+
+  ipcMain.handle('security:unlock', async (_e, password: string) => {
+    const result = await initDb(password)
+    if (!result.needsPassword) {
+      _needsPassword = false
+      return { success: true }
+    }
+    return { success: false, error: 'Wrong password' }
+  })
+
+  ipcMain.handle('security:verify-password', (_e, password: string) =>
+    verifyPassword(password)
+  )
+
+  ipcMain.handle('security:enable-encryption', (_e, password: string) => {
+    enableEncryption(password)
+    saveSettings({ encryptionEnabled: true })
+    return { success: true }
+  })
+
+  ipcMain.handle('security:disable-encryption', (_e, password: string) => {
+    if (!verifyPassword(password)) return { success: false, error: 'Wrong password' }
+    disableEncryption()
+    saveSettings({ encryptionEnabled: false })
+    return { success: true }
+  })
+
+  ipcMain.handle('security:change-password', (_e, oldPassword: string, newPassword: string) => {
+    if (!verifyPassword(oldPassword)) return { success: false, error: 'Wrong password' }
+    enableEncryption(newPassword)
+    return { success: true }
+  })
+
+  // ── Backup ───────────────────────────────────────────────────────────────────
+  ipcMain.handle('backup:export', async () => {
+    const result = await dialog.showSaveDialog({
+      title: 'Export Hoard Backup',
+      defaultPath: `hoard-backup-${new Date().toISOString().slice(0, 10)}.hoard`,
+      filters: [{ name: 'Hoard Backup', extensions: ['hoard'] }]
+    })
+    if (result.canceled || !result.filePath) return { cancelled: true }
+    exportBackup(result.filePath)
+    return { success: true, path: result.filePath }
+  })
+
+  ipcMain.handle('backup:import', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Import Hoard Backup',
+      filters: [{ name: 'Hoard Backup', extensions: ['hoard'] }],
+      properties: ['openFile']
+    })
+    if (result.canceled || !result.filePaths.length) return { cancelled: true }
+    importBackup(result.filePaths[0])
+    return { success: true }
+  })
+
+  // ── Item move / copy ─────────────────────────────────────────────────────────
+  ipcMain.handle('item:move', (_e, id: number, targetVaultId: number, targetFolderId?: number | null) =>
+    itemQueries.move(id, targetVaultId, targetFolderId)
+  )
+
+  ipcMain.handle('item:copy', (_e, id: number, targetVaultId: number, targetFolderId?: number | null) =>
+    itemQueries.copy(id, targetVaultId, targetFolderId)
+  )
+
+  ipcMain.handle('item:duplicate', (_e, id: number) =>
+    itemQueries.duplicate(id)
+  )
+
+  ipcMain.handle('item:folder-counts', (_e, vaultId: number) =>
+    itemQueries.folderCounts(vaultId)
+  )
 }
 
 // Parse Netscape HTML bookmark format (Chrome, Firefox, Edge, Safari all use this)

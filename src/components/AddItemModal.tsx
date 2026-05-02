@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, FileText, Image, Code, X, Loader2, Plus } from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
+import { toast } from '../lib/toast'
 import type { ItemType } from '../types'
 import { cn } from '../lib/utils'
 import { TagSelector } from './TagSelector'
@@ -75,6 +76,19 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
 
   const handleSave = async () => {
     if (!canSave() || saving) return
+
+    // Duplicate URL check
+    if (type === 'link' && url.trim()) {
+      const normalised = url.trim().toLowerCase().replace(/\/$/, '')
+      const duplicate = useStore.getState().items.find(
+        (i) => i.url?.toLowerCase().replace(/\/$/, '') === normalised
+      )
+      if (duplicate) {
+        toast.info(t.duplicateUrlWarning)
+        // Don't block — let the user decide — just warn and continue
+      }
+    }
+
     setSaving(true)
     try {
       await createItem({

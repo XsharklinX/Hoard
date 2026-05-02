@@ -1,8 +1,12 @@
 import { create } from 'zustand'
-import type { Vault, Folder, Item, Tag, CreateItemData, AppSettings, ItemType } from '../types'
+import type { Vault, Folder, Item, Tag, CreateItemData, AppSettings, ItemType, SecurityStatus } from '../types'
 
 interface HoardStore {
-  // State
+  // ── App state ──────────────────────────────────────────────────────────────
+  appLocked:      boolean
+  securityStatus: SecurityStatus
+
+  // ── Data ──────────────────────────────────────────────────────────────────
   vaults:         Vault[]
   selectedVault:  Vault | null
   folders:        Folder[]
@@ -11,54 +15,88 @@ interface HoardStore {
   items:          Item[]
   tags:           Tag[]
   searchQuery:    string
+  sortBy:         'newest' | 'oldest' | 'az' | 'za' | 'pinned'
   isLoading:      boolean
   settings:       AppSettings
   selectedItem:   Item | null
-
   selectedType:   ItemType | 'all'
   itemCounts:     { all: number, link: number, note: number, image: number, code: number }
+  folderCounts:   Record<number, number>
 
-  // Vault actions
+  // ── Multi-select ──────────────────────────────────────────────────────────
+  selectedIds:    Set<number>
+
+  // ── Security actions ──────────────────────────────────────────────────────
+  checkSecurity:  () => Promise<void>
+  unlock:         (password: string) => Promise<boolean>
+  lockApp:        () => void
+
+  // ── Vault actions ─────────────────────────────────────────────────────────
   loadVaults:  () => Promise<void>
   selectVault: (vault: Vault) => Promise<void>
   createVault: (name: string, color: string) => Promise<void>
   updateVault: (id: number, name: string, color: string) => Promise<void>
   deleteVault: (id: number) => Promise<void>
 
-  // Folder actions
+  // ── Folder actions ────────────────────────────────────────────────────────
   selectFolder: (folder: Folder | null) => Promise<void>
   createFolder: (name: string, parentId?: number, smartQuery?: string) => Promise<void>
+  updateFolder: (id: number, name: string, smartQuery?: string) => Promise<void>
   deleteFolder: (id: number) => Promise<void>
 
-  // Tag actions
+  // ── Tag actions ───────────────────────────────────────────────────────────
   selectTag:   (tag: Tag | null) => Promise<void>
   createTag:   (name: string, color: string) => Promise<Tag>
   deleteTag:   (id: number) => Promise<void>
   loadTags:    () => Promise<void>
 
-  // Item actions
-  setSearch:   (q: string) => Promise<void>
-  selectType:  (type: ItemType | 'all') => Promise<void>
-  loadCounts:  () => Promise<void>
-  createItem:  (data: Omit<CreateItemData, 'vaultId'>) => Promise<void>
-  updateItem:  (id: number, data: Partial<CreateItemData>) => Promise<void>
-  pinItem:     (id: number, pinned: boolean) => Promise<void>
-  deleteItem:  (id: number) => Promise<void>
-  selectItem:  (item: Item | null) => void
+  // ── Item actions ──────────────────────────────────────────────────────────
+  setSearch:        (q: string) => Promise<void>
+  setSort:          (sort: HoardStore['sortBy']) => void
+  selectType:       (type: ItemType | 'all') => Promise<void>
+  loadCounts:       () => Promise<void>
+  loadFolderCounts: () => Promise<void>
+  createItem:       (data: Omit<CreateItemData, 'vaultId'>) => Promise<void>
+  updateItem:       (id: number, data: Partial<CreateItemData>) => Promise<void>
+  pinItem:          (id: number, pinned: boolean) => Promise<void>
+  deleteItem:       (id: number) => Promise<void>
+  duplicateItem:    (id: number) => Promise<void>
+  selectItem:       (item: Item | null) => void
+  moveItem:         (id: number, targetVaultId: number, targetFolderId?: number | null) => Promise<void>
+  copyItem:         (id: number, targetVaultId: number, targetFolderId?: number | null) => Promise<void>
 
-  // Settings actions
+  // ── Multi-select actions ──────────────────────────────────────────────────
+  toggleSelect:      (id: number) => void
+  selectAll:         () => void
+  clearSelection:    () => void
+  deleteSelected:    () => Promise<void>
+  moveSelected:      (targetVaultId: number, targetFolderId?: number | null) => Promise<void>
+
+  // ── Settings actions ──────────────────────────────────────────────────────
   loadSettings:   () => Promise<void>
   updateSettings: (patch: Partial<AppSettings>) => Promise<void>
+
+  // ── Archive status push ───────────────────────────────────────────────────
+  updateArchiveStatus: (id: number, status: Item['archive_status'], archivePath?: string) => void
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
   language: 'en',
   showReadingTime: true,
   defaultItemType: 'link',
-  compactView: false
+  compactView: false,
+  encryptionEnabled: false,
+  autoLockMinutes: 0,
+  autoBackupEnabled: false,
+  autoBackupPath: '',
+  autoBackupIntervalDays: 7
 }
 
+const DEFAULT_SECURITY: SecurityStatus = { locked: false, encryptionEnabled: false, hasEncryptedDb: false }
+
 export const useStore = create<HoardStore>((set, get) => ({
+  appLocked:      false,
+  securityStatus: DEFAULT_SECURITY,
   vaults:         [],
   selectedVault:  null,
   folders:        [],
@@ -67,11 +105,31 @@ export const useStore = create<HoardStore>((set, get) => ({
   items:          [],
   tags:           [],
   searchQuery:    '',
+  sortBy:         'newest',
   isLoading:      false,
   settings:       DEFAULT_SETTINGS,
   selectedItem:   null,
   selectedType:   'all',
   itemCounts:     { all: 0, link: 0, note: 0, image: 0, code: 0 },
+  folderCounts:   {},
+  selectedIds:    new Set(),
+
+  // ── Security ───────────────────────────────────────────────────────────────
+  checkSecurity: async () => {
+    const status = await window.api.security.getStatus()
+    set({ securityStatus: status, appLocked: status.locked })
+  },
+
+  unlock: async (password) => {
+    const result = await window.api.security.unlock(password)
+    if (result.success) {
+      set({ appLocked: false })
+      await get().loadVaults()
+    }
+    return result.success
+  },
+
+  lockApp: () => set({ appLocked: true }),
 
   // ── Settings ───────────────────────────────────────────────────────────────
   loadSettings: async () => {
@@ -88,21 +146,22 @@ export const useStore = create<HoardStore>((set, get) => ({
   loadVaults: async () => {
     await get().loadSettings()
     const vaults = await window.api.vaults.list()
-    const prev = get().selectedVault
+    const prev    = get().selectedVault
     const current = prev ? vaults.find((v) => v.id === prev.id) ?? vaults[0] : vaults[0]
     set({ vaults })
     if (current) await get().selectVault(current)
   },
 
   selectVault: async (vault) => {
-    set({ selectedVault: vault, selectedFolder: null, selectedTag: null, selectedType: 'all', isLoading: true, selectedItem: null })
-    const [folders, items, tags, itemCounts] = await Promise.all([
+    set({ selectedVault: vault, selectedFolder: null, selectedTag: null, selectedType: 'all', isLoading: true, selectedItem: null, selectedIds: new Set() })
+    const [folders, items, tags, itemCounts, folderCounts] = await Promise.all([
       window.api.folders.list(vault.id),
       window.api.items.list({ vaultId: vault.id }),
       window.api.tags.list(vault.id),
-      window.api.items.counts(vault.id)
+      window.api.items.counts(vault.id),
+      window.api.items.folderCounts(vault.id)
     ])
-    set({ folders, items, tags, itemCounts, isLoading: false })
+    set({ folders, items, tags, itemCounts, folderCounts, isLoading: false })
   },
 
   createVault: async (name, color) => {
@@ -131,7 +190,7 @@ export const useStore = create<HoardStore>((set, get) => ({
   selectFolder: async (folder) => {
     const vault = get().selectedVault
     if (!vault) return
-    set({ selectedFolder: folder, selectedTag: null, selectedType: 'all', isLoading: true, selectedItem: null })
+    set({ selectedFolder: folder, selectedTag: null, selectedType: 'all', isLoading: true, selectedItem: null, selectedIds: new Set() })
     const items = await window.api.items.list({ vaultId: vault.id, folderId: folder?.id ?? null })
     set({ items, isLoading: false })
   },
@@ -141,6 +200,11 @@ export const useStore = create<HoardStore>((set, get) => ({
     if (!vault) return
     const folder = await window.api.folders.create(vault.id, name, parentId, smartQuery)
     set((s) => ({ folders: [...s.folders, folder] }))
+  },
+
+  updateFolder: async (id, name, smartQuery) => {
+    const folder = await window.api.folders.update(id, name, smartQuery)
+    set((s) => ({ folders: s.folders.map((f) => (f.id === id ? folder : f)) }))
   },
 
   deleteFolder: async (id) => {
@@ -164,7 +228,7 @@ export const useStore = create<HoardStore>((set, get) => ({
   selectTag: async (tag) => {
     const vault = get().selectedVault
     if (!vault) return
-    set({ selectedTag: tag, selectedFolder: null, selectedType: 'all', isLoading: true, selectedItem: null })
+    set({ selectedTag: tag, selectedFolder: null, selectedType: 'all', isLoading: true, selectedItem: null, selectedIds: new Set() })
     const items = await window.api.items.list({ vaultId: vault.id, tagId: tag?.id ?? null })
     set({ items, isLoading: false })
   },
@@ -182,10 +246,7 @@ export const useStore = create<HoardStore>((set, get) => ({
     set((s) => ({
       tags:        s.tags.filter((t) => t.id !== id),
       selectedTag: s.selectedTag?.id === id ? null : s.selectedTag,
-      items:       s.items.map((item) => ({
-        ...item,
-        tags: item.tags.filter((t) => t.id !== id)
-      }))
+      items:       s.items.map((item) => ({ ...item, tags: item.tags.filter((t) => t.id !== id) }))
     }))
   },
 
@@ -197,28 +258,44 @@ export const useStore = create<HoardStore>((set, get) => ({
     set({ itemCounts })
   },
 
+  loadFolderCounts: async () => {
+    const vault = get().selectedVault
+    if (!vault) return
+    const folderCounts = await window.api.items.folderCounts(vault.id)
+    set({ folderCounts })
+  },
+
   selectType: async (type) => {
     const vault = get().selectedVault
     if (!vault) return
-    set({ selectedType: type, selectedFolder: null, selectedTag: null, isLoading: true, selectedItem: null })
+    set({ selectedType: type, selectedFolder: null, selectedTag: null, isLoading: true, selectedItem: null, selectedIds: new Set() })
     const items = await window.api.items.list({ vaultId: vault.id, type: type === 'all' ? null : type })
     set({ items, isLoading: false })
+  },
+
+  setSort: (sort) => {
+    set((s) => {
+      const sorted = [...s.items]
+      if (sort === 'newest')  sorted.sort((a, b) => (b.id as number) - (a.id as number))
+      if (sort === 'oldest')  sorted.sort((a, b) => (a.id as number) - (b.id as number))
+      if (sort === 'az')      sorted.sort((a, b) => (a.title ?? '').localeCompare(b.title ?? ''))
+      if (sort === 'za')      sorted.sort((a, b) => (b.title ?? '').localeCompare(a.title ?? ''))
+      if (sort === 'pinned')  sorted.sort((a, b) => (b.is_pinned ?? 0) - (a.is_pinned ?? 0))
+      return { sortBy: sort, items: sorted }
+    })
   },
 
   setSearch: async (q) => {
     const vault = get().selectedVault
     if (!vault) return
     set({ searchQuery: q })
-    
-    // If clearing search, reload based on current filters
     if (!q.trim()) {
       const state = get()
-      if (state.selectedFolder) await state.selectFolder(state.selectedFolder)
+      if (state.selectedFolder)   await state.selectFolder(state.selectedFolder)
       else if (state.selectedTag) await state.selectTag(state.selectedTag)
-      else await state.selectType(state.selectedType)
+      else                        await state.selectType(state.selectedType)
       return
     }
-
     const items = await window.api.items.list({ vaultId: vault.id, search: q })
     set({ items })
   },
@@ -227,31 +304,23 @@ export const useStore = create<HoardStore>((set, get) => ({
     const vault = get().selectedVault
     if (!vault) return
     await window.api.items.create({ ...data, vaultId: vault.id })
-    await get().loadCounts()
-
+    await Promise.all([get().loadCounts(), get().loadFolderCounts()])
     const state = get()
-    if (state.searchQuery.trim()) {
-      await state.setSearch(state.searchQuery)
-    } else if (state.selectedFolder) {
-      await state.selectFolder(state.selectedFolder)
-    } else if (state.selectedTag) {
-      await state.selectTag(state.selectedTag)
-    } else {
-      await state.selectType(state.selectedType)
-    }
+    if (state.searchQuery.trim())    await state.setSearch(state.searchQuery)
+    else if (state.selectedFolder)   await state.selectFolder(state.selectedFolder)
+    else if (state.selectedTag)      await state.selectTag(state.selectedTag)
+    else                             await state.selectType(state.selectedType)
   },
 
   updateItem: async (id, data) => {
     const updated = await window.api.items.update(id, data)
     set((s) => {
       let nextItems = s.items.map((i) => (i.id === id ? { ...i, ...updated } : i))
-      
       if (s.selectedFolder && updated.folder_id !== undefined && updated.folder_id !== s.selectedFolder.id) {
-        nextItems = nextItems.filter(i => i.id !== id)
+        nextItems = nextItems.filter((i) => i.id !== id)
       }
-
       return {
-        items: nextItems,
+        items:        nextItems,
         selectedItem: s.selectedItem?.id === id ? { ...s.selectedItem, ...updated } : s.selectedItem
       }
     })
@@ -268,22 +337,86 @@ export const useStore = create<HoardStore>((set, get) => ({
   },
 
   deleteItem: async (id) => {
-    // Optimistic update — remove from UI immediately
-    const prev = get().items
+    const prev         = get().items
     const prevSelected = get().selectedItem
     set((s) => ({
       items:        s.items.filter((i) => i.id !== id),
-      selectedItem: s.selectedItem?.id === id ? null : s.selectedItem
+      selectedItem: s.selectedItem?.id === id ? null : s.selectedItem,
+      selectedIds:  new Set([...s.selectedIds].filter((x) => x !== id))
     }))
     try {
       await window.api.items.delete(id)
-      await get().loadCounts()
-    } catch (err) {
-      console.error('Failed to delete item, rolling back:', err)
-      // Rollback
+      await Promise.all([get().loadCounts(), get().loadFolderCounts()])
+    } catch {
       set({ items: prev, selectedItem: prevSelected })
     }
   },
 
-  selectItem: (item) => set({ selectedItem: item })
+  selectItem: (item) => set({ selectedItem: item }),
+
+  moveItem: async (id, targetVaultId, targetFolderId) => {
+    await window.api.items.move(id, targetVaultId, targetFolderId)
+    set((s) => ({
+      items:        s.items.filter((i) => i.id !== id),
+      selectedItem: s.selectedItem?.id === id ? null : s.selectedItem,
+      selectedIds:  new Set([...s.selectedIds].filter((x) => x !== id))
+    }))
+    await get().loadCounts()
+  },
+
+  copyItem: async (id, targetVaultId, targetFolderId) => {
+    await window.api.items.copy(id, targetVaultId, targetFolderId)
+  },
+
+  duplicateItem: async (id) => {
+    const vault = get().selectedVault
+    if (!vault) return
+    const newItem = await window.api.items.duplicate(id)
+    set((s) => ({ items: [newItem, ...s.items] }))
+    await get().loadCounts()
+    await get().loadFolderCounts()
+  },
+
+  // ── Multi-select ───────────────────────────────────────────────────────────
+  toggleSelect: (id) => set((s) => {
+    const next = new Set(s.selectedIds)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return { selectedIds: next }
+  }),
+
+  selectAll: () => set((s) => ({ selectedIds: new Set(s.items.map((i) => i.id)) })),
+
+  clearSelection: () => set({ selectedIds: new Set() }),
+
+  deleteSelected: async () => {
+    const ids = [...get().selectedIds]
+    set((s) => ({
+      items:        s.items.filter((i) => !ids.includes(i.id)),
+      selectedItem: ids.includes(s.selectedItem?.id ?? -1) ? null : s.selectedItem,
+      selectedIds:  new Set()
+    }))
+    await Promise.all(ids.map((id) => window.api.items.delete(id)))
+    await get().loadCounts()
+  },
+
+  moveSelected: async (targetVaultId, targetFolderId) => {
+    const ids = [...get().selectedIds]
+    await Promise.all(ids.map((id) => window.api.items.move(id, targetVaultId, targetFolderId)))
+    set((s) => ({
+      items:        s.items.filter((i) => !ids.includes(i.id)),
+      selectedItem: ids.includes(s.selectedItem?.id ?? -1) ? null : s.selectedItem,
+      selectedIds:  new Set()
+    }))
+    await get().loadCounts()
+  },
+
+  // ── Archive status push ────────────────────────────────────────────────────
+  updateArchiveStatus: (id, status, archivePath) => {
+    set((s) => ({
+      items:        s.items.map((i) => i.id === id ? { ...i, archive_status: status, archive_path: archivePath ?? i.archive_path } : i),
+      selectedItem: s.selectedItem?.id === id
+        ? { ...s.selectedItem, archive_status: status, archive_path: archivePath ?? s.selectedItem.archive_path }
+        : s.selectedItem
+    }))
+  }
 }))

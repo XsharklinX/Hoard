@@ -7,13 +7,23 @@ export interface AppSettings {
   showReadingTime: boolean
   defaultItemType: 'link' | 'note' | 'image' | 'code'
   compactView: boolean
+  encryptionEnabled: boolean
+  autoLockMinutes: number
+  autoBackupEnabled: boolean
+  autoBackupPath: string
+  autoBackupIntervalDays: number
 }
 
 const DEFAULTS: AppSettings = {
   language: 'en',
   showReadingTime: true,
   defaultItemType: 'link',
-  compactView: false
+  compactView: false,
+  encryptionEnabled: false,
+  autoLockMinutes: 0,
+  autoBackupEnabled: false,
+  autoBackupPath: '',
+  autoBackupIntervalDays: 7
 }
 
 function settingsPath(): string {

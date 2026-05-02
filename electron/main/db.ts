@@ -8,7 +8,7 @@ let db: any
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
-function saveDb(): void {
+export function saveDb(): void {
   const data: Uint8Array = db.export()
   const dbPath = path.join(app.getPath('userData'), 'hoard.db')
   fs.writeFileSync(dbPath, Buffer.from(data))
@@ -51,9 +51,129 @@ function columnExists(table: string, column: string): boolean {
   return info.some((c) => c.name === column)
 }
 
+function getSchemaVersion(): number {
+  run('CREATE TABLE IF NOT EXISTS _schema_version (version INTEGER NOT NULL DEFAULT 0)')
+  const row = get<{ version: number }>('SELECT version FROM _schema_version')
+  if (!row) { run('INSERT INTO _schema_version (version) VALUES (0)'); return 0 }
+  return row.version
+}
+
+function setSchemaVersion(v: number): void {
+  run('UPDATE _schema_version SET version=?', [v])
+}
+
+// Each migration runs exactly once; version is bumped atomically after.
+const MIGRATIONS: Array<{ version: number; up: () => void }> = [
+  {
+    // smart_query on folders
+    version: 1,
+    up: () => {
+      if (!columnExists('folders', 'smart_query'))
+        run('ALTER TABLE folders ADD COLUMN smart_query TEXT')
+    }
+  },
+  {
+    // code_lang on items
+    version: 2,
+    up: () => {
+      if (!columnExists('items', 'code_lang'))
+        run('ALTER TABLE items ADD COLUMN code_lang TEXT')
+    }
+  },
+  {
+    // archive_path on items
+    version: 3,
+    up: () => {
+      if (!columnExists('items', 'archive_path'))
+        run('ALTER TABLE items ADD COLUMN archive_path TEXT')
+    }
+  },
+  {
+    // Rebuild items table to add 'code' to type CHECK constraint
+    version: 4,
+    up: () => {
+      const tableSql = (db.exec("SELECT sql FROM sqlite_master WHERE type='table' AND name='items'")[0]?.values[0][0] as string) || ''
+      if (tableSql.includes("'code'")) return
+      run('PRAGMA foreign_keys = OFF')
+      run('BEGIN TRANSACTION')
+      run(`CREATE TABLE items_new (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        vault_id     INTEGER NOT NULL REFERENCES vaults(id)  ON DELETE CASCADE,
+        folder_id    INTEGER          REFERENCES folders(id) ON DELETE SET NULL,
+        type         TEXT    NOT NULL CHECK(type IN ('link','note','image','code')),
+        title        TEXT,
+        content      TEXT,
+        url          TEXT,
+        image_path   TEXT,
+        favicon      TEXT,
+        reading_time INTEGER,
+        code_lang    TEXT,
+        archive_path TEXT,
+        is_pinned    INTEGER NOT NULL DEFAULT 0,
+        created_at   INTEGER DEFAULT (strftime('%s','now')),
+        updated_at   INTEGER DEFAULT (strftime('%s','now'))
+      )`)
+      run(`INSERT INTO items_new
+             (id, vault_id, folder_id, type, title, content, url, image_path,
+              favicon, reading_time, code_lang, is_pinned, created_at, updated_at)
+           SELECT id, vault_id, folder_id, type, title, content, url, image_path,
+                  favicon, reading_time, code_lang, is_pinned, created_at, updated_at
+           FROM items`)
+      run('DROP TABLE items')
+      run('ALTER TABLE items_new RENAME TO items')
+      run('COMMIT')
+      run('PRAGMA foreign_keys = ON')
+    }
+  },
+  {
+    // archive_status on items
+    version: 5,
+    up: () => {
+      if (!columnExists('items', 'archive_status'))
+        run("ALTER TABLE items ADD COLUMN archive_status TEXT CHECK(archive_status IN ('pending','done','failed'))")
+    }
+  }
+]
+
+function applyMigrations(): void {
+  const current = getSchemaVersion()
+  for (const m of MIGRATIONS) {
+    if (m.version > current) {
+      m.up()
+      setSchemaVersion(m.version)
+    }
+  }
+  saveDb()
+}
+
+function setupFts(): void {
+  run('DROP TRIGGER IF EXISTS items_ai')
+  run('DROP TRIGGER IF EXISTS items_ad')
+  run('DROP TRIGGER IF EXISTS items_au')
+  run('DROP TRIGGER IF EXISTS items_bu')
+  run('DROP TABLE IF EXISTS items_fts')
+  run('CREATE VIRTUAL TABLE items_fts USING fts4(title, body, url)')
+  run(`INSERT INTO items_fts(docid, title, body, url)
+       SELECT id, COALESCE(title,''), COALESCE(content,''), COALESCE(url,'') FROM items`)
+  run(`CREATE TRIGGER items_ai AFTER INSERT ON items BEGIN
+    INSERT INTO items_fts(docid, title, body, url)
+      VALUES (new.id, COALESCE(new.title,''), COALESCE(new.content,''), COALESCE(new.url,''));
+  END`)
+  run(`CREATE TRIGGER items_bu BEFORE UPDATE ON items BEGIN
+    DELETE FROM items_fts WHERE docid = old.id;
+  END`)
+  run(`CREATE TRIGGER items_au AFTER UPDATE ON items BEGIN
+    INSERT INTO items_fts(docid, title, body, url)
+      VALUES (new.id, COALESCE(new.title,''), COALESCE(new.content,''), COALESCE(new.url,''));
+  END`)
+  run(`CREATE TRIGGER items_ad BEFORE DELETE ON items BEGIN
+    DELETE FROM items_fts WHERE docid = old.id;
+  END`)
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
-export async function initDb(): Promise<void> {
+export async function initDb(password?: string): Promise<{ needsPassword?: boolean }> {
   const wasmPath = app.isPackaged
     ? path.join(process.resourcesPath, 'sql-wasm.wasm')
     : path.join(app.getAppPath(), 'resources/sql-wasm.wasm')
@@ -71,7 +191,7 @@ export async function initDb(): Promise<void> {
 
   run('PRAGMA foreign_keys = ON')
 
-  // ── Core tables ────────────────────────────────────────────────────────────
+  // ── Base schema (always idempotent, full current shape) ───────────────────
   run(`CREATE TABLE IF NOT EXISTS vaults (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT    NOT NULL,
@@ -81,121 +201,34 @@ export async function initDb(): Promise<void> {
   )`)
 
   run(`CREATE TABLE IF NOT EXISTS folders (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    vault_id   INTEGER NOT NULL REFERENCES vaults(id)  ON DELETE CASCADE,
-    parent_id  INTEGER          REFERENCES folders(id) ON DELETE CASCADE,
-    name       TEXT NOT NULL,
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    vault_id    INTEGER NOT NULL REFERENCES vaults(id)  ON DELETE CASCADE,
+    parent_id   INTEGER          REFERENCES folders(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
     smart_query TEXT,
-    created_at INTEGER DEFAULT (strftime('%s','now')),
-    updated_at INTEGER DEFAULT (strftime('%s','now'))
+    created_at  INTEGER DEFAULT (strftime('%s','now')),
+    updated_at  INTEGER DEFAULT (strftime('%s','now'))
   )`)
-
-  // Migrate: add smart_query if missing
-  if (!columnExists('folders', 'smart_query')) {
-    run('ALTER TABLE folders ADD COLUMN smart_query TEXT')
-    saveDb()
-  }
 
   run(`CREATE TABLE IF NOT EXISTS items (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    vault_id     INTEGER NOT NULL REFERENCES vaults(id)  ON DELETE CASCADE,
-    folder_id    INTEGER          REFERENCES folders(id) ON DELETE SET NULL,
-    type         TEXT    NOT NULL CHECK(type IN ('link','note','image','code')),
-    title        TEXT,
-    content      TEXT,
-    url          TEXT,
-    image_path   TEXT,
-    favicon      TEXT,
-    reading_time INTEGER,
-    code_lang    TEXT,
-    archive_path TEXT,
-    is_pinned    INTEGER NOT NULL DEFAULT 0,
-    created_at   INTEGER DEFAULT (strftime('%s','now')),
-    updated_at   INTEGER DEFAULT (strftime('%s','now'))
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    vault_id       INTEGER NOT NULL REFERENCES vaults(id)  ON DELETE CASCADE,
+    folder_id      INTEGER          REFERENCES folders(id) ON DELETE SET NULL,
+    type           TEXT    NOT NULL CHECK(type IN ('link','note','image','code')),
+    title          TEXT,
+    content        TEXT,
+    url            TEXT,
+    image_path     TEXT,
+    favicon        TEXT,
+    reading_time   INTEGER,
+    code_lang      TEXT,
+    archive_path   TEXT,
+    archive_status TEXT CHECK(archive_status IN ('pending','done','failed')),
+    is_pinned      INTEGER NOT NULL DEFAULT 0,
+    created_at     INTEGER DEFAULT (strftime('%s','now')),
+    updated_at     INTEGER DEFAULT (strftime('%s','now'))
   )`)
 
-  // Migrate: add code_lang if missing (existing databases)
-  if (!columnExists('items', 'code_lang')) {
-    run('ALTER TABLE items ADD COLUMN code_lang TEXT')
-  }
-
-  // Migrate: add archive_path if missing
-  if (!columnExists('items', 'archive_path')) {
-    run('ALTER TABLE items ADD COLUMN archive_path TEXT')
-    saveDb()
-  }
-
-  // Migrate: update check constraint for type to include 'code'
-  const tableSql = (db.exec("SELECT sql FROM sqlite_master WHERE type='table' AND name='items'")[0]?.values[0][0] as string) || ''
-  if (tableSql && !tableSql.includes("'code'")) {
-    run('PRAGMA foreign_keys = OFF')
-    run('BEGIN TRANSACTION')
-    run(`CREATE TABLE items_new (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      vault_id     INTEGER NOT NULL REFERENCES vaults(id)  ON DELETE CASCADE,
-      folder_id    INTEGER          REFERENCES folders(id) ON DELETE SET NULL,
-      type         TEXT    NOT NULL CHECK(type IN ('link','note','image','code')),
-      title        TEXT,
-      content      TEXT,
-      url          TEXT,
-      image_path   TEXT,
-      favicon      TEXT,
-      reading_time INTEGER,
-      code_lang    TEXT,
-      archive_path TEXT,
-      is_pinned    INTEGER NOT NULL DEFAULT 0,
-      created_at   INTEGER DEFAULT (strftime('%s','now')),
-      updated_at   INTEGER DEFAULT (strftime('%s','now'))
-    )`)
-    // When recreating, ensure we copy all old fields and leave new ones null
-    // Since archive_path is new, and items_new has it, we just select * and null
-    // Actually, sqlite's insert into select * requires matching columns.
-    run('INSERT INTO items_new (id, vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, is_pinned, created_at, updated_at) SELECT id, vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, is_pinned, created_at, updated_at FROM items')
-    run('DROP TABLE items')
-    run('ALTER TABLE items_new RENAME TO items')
-    run('COMMIT')
-    run('PRAGMA foreign_keys = ON')
-    saveDb()
-  }
-
-  // ── FTS4 — always drop & recreate to fix any schema issues ──────────────────
-  // The old table used content="items" AND a column named "content" — SQLite
-  // naming conflict that caused "SQL logic error" on BEFORE DELETE triggers.
-  // New table is standalone (no content= backing), columns: title, body, url.
-  run(`DROP TRIGGER IF EXISTS items_ai`)
-  run(`DROP TRIGGER IF EXISTS items_ad`)
-  run(`DROP TRIGGER IF EXISTS items_au`)
-  run(`DROP TRIGGER IF EXISTS items_bu`)
-  run(`DROP TABLE IF EXISTS items_fts`)
-
-  run(`CREATE VIRTUAL TABLE items_fts USING fts4(title, body, url)`)
-
-  // Populate FTS from the items table on every cold start
-  run(`INSERT INTO items_fts(docid, title, body, url)
-       SELECT id, COALESCE(title,''), COALESCE(content,''), COALESCE(url,'') FROM items`)
-
-  // Triggers — use 'body' (no conflict with SQL keywords / fts options)
-  run(`CREATE TRIGGER items_ai AFTER INSERT ON items BEGIN
-    INSERT INTO items_fts(docid, title, body, url)
-      VALUES (new.id, COALESCE(new.title,''), COALESCE(new.content,''), COALESCE(new.url,''));
-  END`)
-
-  run(`CREATE TRIGGER items_bu BEFORE UPDATE ON items BEGIN
-    DELETE FROM items_fts WHERE docid = old.id;
-  END`)
-
-  run(`CREATE TRIGGER items_au AFTER UPDATE ON items BEGIN
-    INSERT INTO items_fts(docid, title, body, url)
-      VALUES (new.id, COALESCE(new.title,''), COALESCE(new.content,''), COALESCE(new.url,''));
-  END`)
-
-  run(`CREATE TRIGGER items_ad BEFORE DELETE ON items BEGIN
-    DELETE FROM items_fts WHERE docid = old.id;
-  END`)
-
-  saveDb()
-
-  // ── Tags ───────────────────────────────────────────────────────────────────
   run(`CREATE TABLE IF NOT EXISTS tags (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     vault_id   INTEGER NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
@@ -210,12 +243,20 @@ export async function initDb(): Promise<void> {
     PRIMARY KEY (item_id, tag_id)
   )`)
 
-  // Seed default vault
+  // ── Run any pending migrations on existing DBs ────────────────────────────
+  applyMigrations()
+
+  // ── FTS (rebuilt every start to stay consistent) ──────────────────────────
+  setupFts()
+
+  // ── Seed default vault ────────────────────────────────────────────────────
   const count = (db.exec('SELECT COUNT(*) c FROM vaults')[0]?.values[0][0] ?? 0) as number
   if (count === 0) {
     run("INSERT INTO vaults (name, color) VALUES ('My Hoard', '#c9952a')")
     saveDb()
   }
+
+  return { needsPassword: false }
 }
 
 // ── Vaults ────────────────────────────────────────────────────────────────────
@@ -275,6 +316,7 @@ export interface CreateItemData {
   readingTime?: number
   codeLang?: string
   archivePath?: string
+  archiveStatus?: 'pending' | 'done' | 'failed' | null
   tagIds?: number[]
 }
 
@@ -398,7 +440,8 @@ export const itemQueries = {
     if (data.content     !== undefined) { fields.push('content=?');      values.push(data.content) }
     if (data.folderId    !== undefined) { fields.push('folder_id=?');    values.push(data.folderId) }
     if (data.codeLang    !== undefined) { fields.push('code_lang=?');    values.push(data.codeLang) }
-    if (data.archivePath !== undefined) { fields.push('archive_path=?'); values.push(data.archivePath) }
+    if (data.archivePath   !== undefined) { fields.push('archive_path=?');   values.push(data.archivePath) }
+    if (data.archiveStatus !== undefined) { fields.push('archive_status=?'); values.push(data.archiveStatus) }
     if (data.favicon     !== undefined) { fields.push('favicon=?');      values.push(data.favicon) }
     if (data.readingTime !== undefined) { fields.push('reading_time=?'); values.push(data.readingTime) }
     if (data.imagePath   !== undefined) { fields.push('image_path=?');   values.push(data.imagePath) }
@@ -430,6 +473,59 @@ export const itemQueries = {
   delete: (id: number) => {
     run('DELETE FROM items WHERE id=?', [id])
     saveDb()
+  },
+
+  duplicate: (id: number) => {
+    const src = get<Record<string, unknown>>('SELECT * FROM items WHERE id=?', [id])
+    if (!src) throw new Error(`Item ${id} not found`)
+    const tags = getTagsForItem(id) as Array<{ id: number }>
+    const newTitle = src.title ? `${src.title} (copy)` : null
+    const row = insertReturning(
+      'items',
+      `INSERT INTO items (vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, archive_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at`,
+      [src.vault_id, src.folder_id, src.type, newTitle, src.content, src.url, src.image_path, src.favicon, src.reading_time, src.code_lang, null]
+    ) as { id: number }
+    for (const tag of tags) {
+      run('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)', [row.id, tag.id])
+    }
+    saveDb()
+    return { ...row, tags: getTagsForItem(row.id) }
+  },
+
+  move: (id: number, targetVaultId: number, targetFolderId?: number | null) => {
+    run('UPDATE items SET vault_id=?, folder_id=?, updated_at=strftime(\'%s\',\'now\') WHERE id=?',
+      [targetVaultId, targetFolderId ?? null, id])
+    saveDb()
+    const row = get<{ id: number }>('SELECT * FROM items WHERE id=?', [id])
+    return { ...row, tags: getTagsForItem(id) }
+  },
+
+  copy: (id: number, targetVaultId: number, targetFolderId?: number | null) => {
+    const src = get<Record<string, unknown>>('SELECT * FROM items WHERE id=?', [id])
+    if (!src) throw new Error(`Item ${id} not found`)
+    const tags = getTagsForItem(id) as Array<{ id: number }>
+    const row = insertReturning(
+      'items',
+      `INSERT INTO items (vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, archive_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at`,
+      [targetVaultId, targetFolderId ?? null, src.type, src.title, src.content, src.url, src.image_path, src.favicon, src.reading_time, src.code_lang, null]
+    ) as { id: number }
+    for (const tag of tags) {
+      run('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)', [row.id, tag.id])
+    }
+    saveDb()
+    return { ...row, tags: getTagsForItem(row.id) }
+  },
+
+  folderCounts: (vaultId: number): Record<number, number> => {
+    const rows = all<{ folder_id: number; count: number }>(
+      'SELECT folder_id, COUNT(*) as count FROM items WHERE vault_id=? AND folder_id IS NOT NULL GROUP BY folder_id',
+      [vaultId]
+    )
+    const result: Record<number, number> = {}
+    for (const row of rows) result[row.folder_id] = row.count
+    return result
   }
 }
 
@@ -465,3 +561,10 @@ export function getImagesDir(): string {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   return dir
 }
+
+// ── Security (Mocked for now) ──────────────────────────────────────────────────
+export function isEncryptionEnabled(): boolean { return false }
+export function hasEncryptedDb(): boolean { return false }
+export function verifyPassword(password: string): boolean { return true }
+export function enableEncryption(password: string): void {}
+export function disableEncryption(): void {}

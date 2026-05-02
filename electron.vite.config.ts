@@ -22,8 +22,17 @@ export default defineConfig({
   renderer: {
     root: '.',
     build: {
+      chunkSizeWarningLimit: 1000,
       rollupOptions: {
-        input: resolve('index.html')
+        input: resolve('index.html'),
+        output: {
+          manualChunks: {
+            'react-vendor':  ['react', 'react-dom'],
+            'editor':        ['@tiptap/react', '@tiptap/starter-kit', '@tiptap/extension-placeholder', '@tiptap/extension-link', '@tiptap/extension-task-list', '@tiptap/extension-task-item'],
+            'syntax':        ['react-syntax-highlighter'],
+            'radix':         ['@radix-ui/react-context-menu', '@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-tooltip'],
+          }
+        }
       }
     },
     resolve: {

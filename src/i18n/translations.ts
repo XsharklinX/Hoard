@@ -101,6 +101,80 @@ export const translations = {
     noDescription: 'No description.',
     copyCode: 'Copy',
     codeCopied: 'Copied!',
+
+    // Archive status
+    archivePending: 'Archiving…',
+    archiveDone: 'Page archived',
+    archiveFailed: 'Archive failed',
+
+    // Multi-select
+    selectAll: 'Select all',
+    deselectAll: 'Deselect all',
+    selected: (n: number) => `${n} selected`,
+    moveOrCopy: 'Move / Copy',
+    deleteSelected: (n: number) => `Delete ${n} items?`,
+
+    // Folder update
+    updateFolder: 'Update folder',
+
+    // Confirm dialog
+    confirmDelete: 'Delete',
+
+    // Toast messages
+    toastItemAdded:    'Item added',
+    toastItemDeleted:  'Item deleted',
+    toastItemPinned:   'Item pinned',
+    toastItemUnpinned: 'Item unpinned',
+    toastVaultCreated: 'Vault created',
+    toastFolderCreated:'Folder created',
+    toastUrlCopied:    'URL copied',
+    toastTagDeleted:   'Tag deleted',
+    toastVaultDeleted: 'Vault deleted',
+    toastFolderDeleted:'Folder deleted',
+    toastItemMoved:    'Item moved',
+    toastItemCopied:   'Item copied',
+
+    // Sort
+    sortLabel:    'Sort',
+    sortNewest:   'Newest first',
+    sortOldest:   'Oldest first',
+    sortTitleAz:  'Title A → Z',
+    sortTitleZa:  'Title Z → A',
+
+    // Context menu
+    copyUrl: 'Copy URL',
+
+    // Command palette
+    cmdPlaceholder:  'Search items, vaults, folders…',
+    cmdNoResults:    'No results',
+    cmdActionsLabel: 'Actions',
+    cmdItemsLabel:   'Items',
+    cmdOpenSettings: 'Open Settings',
+    cmdNewItem:      'New item',
+    cmdLockApp:      'Lock app',
+
+    // Inline rename
+    renamePlaceholder: 'Rename…',
+
+    // Edit item modal
+    editItem:          'Edit item',
+    toastItemUpdated:  'Item updated',
+    toastItemDuplicated: 'Item duplicated',
+
+    // Duplicate
+    duplicateItem: 'Duplicate',
+
+    // Date filters
+    dateFilterLabel: 'Date',
+    dateFilterAll:   'All time',
+    dateFilterWeek:  'This week',
+    dateFilterMonth: 'This month',
+    dateFilterYear:  'This year',
+
+    // Folder counts (no string needed — shown as numbers)
+
+    // Duplicate URL
+    duplicateUrlWarning: 'This URL already exists in your vault.',
   },
 
   es: {
@@ -203,6 +277,78 @@ export const translations = {
     noDescription: 'Sin descripción.',
     copyCode: 'Copiar',
     codeCopied: '¡Copiado!',
+
+    // Archive status
+    archivePending: 'Archivando…',
+    archiveDone: 'Página archivada',
+    archiveFailed: 'Error al archivar',
+
+    // Multi-select
+    selectAll: 'Seleccionar todo',
+    deselectAll: 'Deseleccionar todo',
+    selected: (n: number) => `${n} seleccionados`,
+    moveOrCopy: 'Mover / Copiar',
+    deleteSelected: (n: number) => `¿Eliminar ${n} elementos?`,
+
+    // Folder update
+    updateFolder: 'Actualizar carpeta',
+
+    // Confirm dialog
+    confirmDelete: 'Eliminar',
+
+    // Toast messages
+    toastItemAdded:    'Elemento agregado',
+    toastItemDeleted:  'Elemento eliminado',
+    toastItemPinned:   'Elemento fijado',
+    toastItemUnpinned: 'Elemento desfijado',
+    toastVaultCreated: 'Bóveda creada',
+    toastFolderCreated:'Carpeta creada',
+    toastUrlCopied:    'URL copiada',
+    toastTagDeleted:   'Etiqueta eliminada',
+    toastVaultDeleted: 'Bóveda eliminada',
+    toastFolderDeleted:'Carpeta eliminada',
+    toastItemMoved:    'Elemento movido',
+    toastItemCopied:   'Elemento copiado',
+
+    // Sort
+    sortLabel:    'Ordenar',
+    sortNewest:   'Más recientes',
+    sortOldest:   'Más antiguos',
+    sortTitleAz:  'Título A → Z',
+    sortTitleZa:  'Título Z → A',
+
+    // Context menu
+    copyUrl: 'Copiar URL',
+
+    // Command palette
+    cmdPlaceholder:  'Buscar elementos, bóvedas, carpetas…',
+    cmdNoResults:    'Sin resultados',
+    cmdActionsLabel: 'Acciones',
+    cmdItemsLabel:   'Elementos',
+    cmdOpenSettings: 'Abrir configuración',
+    cmdNewItem:      'Nuevo elemento',
+    cmdLockApp:      'Bloquear app',
+
+    // Inline rename
+    renamePlaceholder: 'Renombrar…',
+
+    // Edit item modal
+    editItem:          'Editar elemento',
+    toastItemUpdated:  'Elemento actualizado',
+    toastItemDuplicated: 'Elemento duplicado',
+
+    // Duplicate
+    duplicateItem: 'Duplicar',
+
+    // Date filters
+    dateFilterLabel: 'Fecha',
+    dateFilterAll:   'Todo el tiempo',
+    dateFilterWeek:  'Esta semana',
+    dateFilterMonth: 'Este mes',
+    dateFilterYear:  'Este año',
+
+    // Duplicate URL
+    duplicateUrlWarning: 'Esta URL ya existe en tu bóveda.',
   }
 } as const
 

@@ -1,10 +1,15 @@
 import { BrowserWindow, app } from 'electron'
 import path from 'path'
+import fs from 'fs'
 import { itemQueries } from './db'
+import { sendToRenderer } from './window'
 
-export async function archiveWebPage(itemId: number, url: string) {
-  return new Promise<void>((resolve, reject) => {
-    // We create a hidden window
+export async function archiveWebPage(itemId: number, url: string): Promise<void> {
+  // Mark as pending immediately so the UI can show a spinner
+  itemQueries.update(itemId, { archiveStatus: 'pending' })
+  sendToRenderer('item:archive-status', { id: itemId, status: 'pending' })
+
+  return new Promise<void>((resolve) => {
     const win = new BrowserWindow({
       show: false,
       webPreferences: {
@@ -12,47 +17,36 @@ export async function archiveWebPage(itemId: number, url: string) {
         nodeIntegration: false,
         contextIsolation: true
       }
-    });
+    })
+
+    const cleanup = (status: 'done' | 'failed', archivePath?: string) => {
+      if (!win.isDestroyed()) win.destroy()
+      itemQueries.update(itemId, {
+        archiveStatus: status,
+        ...(archivePath ? { archivePath } : {})
+      })
+      sendToRenderer('item:archive-status', { id: itemId, status, archivePath })
+      resolve()
+    }
 
     win.webContents.on('did-finish-load', async () => {
       try {
-        const userDataPath = app.getPath('userData');
-        const archivesDir = path.join(userDataPath, 'archives');
-        const fs = require('fs');
-        if (!fs.existsSync(archivesDir)) fs.mkdirSync(archivesDir);
+        const archivesDir = path.join(app.getPath('userData'), 'archives')
+        if (!fs.existsSync(archivesDir)) fs.mkdirSync(archivesDir, { recursive: true })
 
-        const mhtmlPath = path.join(archivesDir, `${itemId}_${Date.now()}.mhtml`);
-        await win.webContents.savePage(mhtmlPath, 'MHTML');
-        
-        // Update the item to store the archive path
-        // We will store it in a new field or reuse an existing one like `imagePath` 
-        // Wait, `imagePath` is strictly for images. We can store it in a new column or just JSON inside content if we want,
-        // but adding a new column `archive_path` is better.
-        // Wait, we don't have `archive_path` in the database.
-        // I will just add it to `db.ts`! For now, let's just save it.
-        itemQueries.update(itemId, { archivePath: mhtmlPath } as any);
-        
-        win.destroy();
-        resolve();
-      } catch (err) {
-        win.destroy();
-        reject(err);
+        const mhtmlPath = path.join(archivesDir, `${itemId}_${Date.now()}.mhtml`)
+        await win.webContents.savePage(mhtmlPath, 'MHTML')
+        cleanup('done', mhtmlPath)
+      } catch {
+        cleanup('failed')
       }
-    });
+    })
 
-    win.webContents.on('did-fail-load', () => {
-      win.destroy();
-      reject(new Error('Failed to load page for archiving.'));
-    });
+    win.webContents.on('did-fail-load', () => cleanup('failed'))
 
-    // Timeout after 30 seconds
-    setTimeout(() => {
-      if (!win.isDestroyed()) {
-        win.destroy();
-        reject(new Error('Timeout loading page for archiving.'));
-      }
-    }, 30000);
+    const timeout = setTimeout(() => cleanup('failed'), 30_000)
+    win.webContents.once('did-finish-load', () => clearTimeout(timeout))
 
-    win.loadURL(url);
-  });
+    win.loadURL(url)
+  })
 }
