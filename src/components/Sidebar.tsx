@@ -259,7 +259,7 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
                   onRenameStart={startRenameFolder}
                   onRenameCommit={commitRenameFolder}
                   onRenameCancel={() => setRenameFolderId(null)}
-                  onSelect={(f) => { selectFolder(f); selectTag(null) }}
+                  onSelect={(f) => { selectFolder(f) }}
                   onToggle={toggleFolder}
                   onDelete={handleDeleteFolder}
                 />
@@ -283,7 +283,7 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
                         'group flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer transition-colors text-sm',
                         selectedTag?.id === tag.id ? 'bg-gold/10 text-gold' : 'text-text-secondary hover:bg-card hover:text-text-primary'
                       )}
-                      onClick={() => { selectTag(tag); selectFolder(null) }}
+                      onClick={() => { selectTag(tag) }}
                     >
                       <Tag className="w-3 h-3 shrink-0" style={{ color: tag.color }} />
                       <span className="flex-1 truncate">{tag.name}</span>

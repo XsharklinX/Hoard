@@ -39,10 +39,11 @@ interface HoardStore {
   deleteVault: (id: number) => Promise<void>
 
   // ── Folder actions ────────────────────────────────────────────────────────
-  selectFolder: (folder: Folder | null) => Promise<void>
-  createFolder: (name: string, parentId?: number, smartQuery?: string) => Promise<void>
-  updateFolder: (id: number, name: string, smartQuery?: string) => Promise<void>
-  deleteFolder: (id: number) => Promise<void>
+  selectFolder:  (folder: Folder | null) => Promise<void>
+  reloadFolders: () => Promise<void>
+  createFolder:  (name: string, parentId?: number, smartQuery?: string) => Promise<void>
+  updateFolder:  (id: number, name: string, smartQuery?: string) => Promise<void>
+  deleteFolder:  (id: number) => Promise<void>
 
   // ── Tag actions ───────────────────────────────────────────────────────────
   selectTag:   (tag: Tag | null) => Promise<void>
@@ -187,6 +188,16 @@ export const useStore = create<HoardStore>((set, get) => ({
   },
 
   // ── Folders ────────────────────────────────────────────────────────────────
+  reloadFolders: async () => {
+    const vault = get().selectedVault
+    if (!vault) return
+    const [folders, folderCounts] = await Promise.all([
+      window.api.folders.list(vault.id),
+      window.api.items.folderCounts(vault.id)
+    ])
+    set({ folders, folderCounts })
+  },
+
   selectFolder: async (folder) => {
     const vault = get().selectedVault
     if (!vault) return

@@ -175,6 +175,11 @@ export const translations = {
 
     // Duplicate URL
     duplicateUrlWarning: 'This URL already exists in your vault.',
+
+    // Image download
+    downloadImage:   'Download image',
+    toastImageSaved: 'Image saved',
+    toastImagesSaved: (n: number) => `${n} image${n === 1 ? '' : 's'} saved`,
   },
 
   es: {
@@ -349,6 +354,11 @@ export const translations = {
 
     // Duplicate URL
     duplicateUrlWarning: 'Esta URL ya existe en tu bóveda.',
+
+    // Image download
+    downloadImage:   'Descargar imagen',
+    toastImageSaved: 'Imagen guardada',
+    toastImagesSaved: (n: number) => `${n} imagen${n === 1 ? '' : 'es'} guardada${n === 1 ? '' : 's'}`,
   }
 } as const
 

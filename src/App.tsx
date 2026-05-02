@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, Component } from 'react'
+import type { ErrorInfo, ReactNode } from 'react'
 import { toast } from './lib/toast'
 import { Sidebar } from './components/Sidebar'
 import { ItemGrid } from './components/ItemGrid'
@@ -15,10 +16,37 @@ import { ConfirmDialog } from './components/ConfirmDialog'
 import { useStore } from './store'
 import type { Vault, Item } from './types'
 
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error('[Hoard crash]', error, info) }
+  handleReset = () => {
+    // Deselect any item that may have caused the crash before resetting
+    useStore.getState().selectItem(null)
+    this.setState({ error: null })
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full gap-4 text-center p-8">
+          <p className="text-text-muted text-xs font-mono max-w-xs break-all">{(this.state.error as Error).message}</p>
+          <button
+            onClick={this.handleReset}
+            className="px-4 py-2 rounded-lg bg-card border border-border text-text-secondary text-sm hover:text-text-primary transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export default function App() {
   const {
     loadVaults, selectedItem, checkSecurity, appLocked, unlock, lockApp, settings,
-    updateArchiveStatus, selectFolder, selectTag, selectType, loadCounts,
+    updateArchiveStatus, selectFolder, selectTag, selectType, loadCounts, reloadFolders,
     selectedFolder, selectedTag, selectedType
   } = useStore()
 
@@ -77,7 +105,7 @@ export default function App() {
   // ── Extension push: refresh grid on new save ───────────────────────────────
   useEffect(() => {
     const handler = window.api.on('item:refresh', async () => {
-      await loadCounts()
+      await Promise.all([loadCounts(), reloadFolders()])
       if (selectedFolder)        await selectFolder(selectedFolder)
       else if (selectedTag)      await selectTag(selectedTag)
       else                       await selectType(selectedType)
@@ -118,6 +146,7 @@ export default function App() {
   if (appLocked) return <LockScreen onUnlock={handleUnlock} />
 
   return (
+    <ErrorBoundary>
     <div className="flex h-full w-full overflow-hidden">
       <Sidebar
         onNewVault={() => { setEditVault(null); setVaultOpen(true) }}
@@ -151,5 +180,6 @@ export default function App() {
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <ConfirmDialog />
     </div>
+    </ErrorBoundary>
   )
 }

@@ -68,6 +68,7 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
   const t = useT()
   const [copied, setCopied]           = useState(false)
   const [faviconError, setFaviconError] = useState(false)
+  const [imgError,    setImgError]    = useState(false)
   const [isEditing, setIsEditing]     = useState(false)
   const [editContent, setEditContent] = useState('')
 
@@ -76,6 +77,7 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
 
   React.useEffect(() => {
     setFaviconError(false)
+    setImgError(false)
     setIsEditing(false)
   }, [item.id])
 
@@ -110,12 +112,16 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
           {item.is_pinned === 1 && <Pin className="w-3 h-3 text-gold fill-current" />}
         </div>
         <div className="flex items-center gap-1">
-          {item.type === 'image' && item.image_path && (
+          {item.type === 'image' && (item.image_path || item.url?.startsWith('http')) && (
             <Tip label={t.downloadImage}>
               <button
                 onClick={async () => {
-                  const r = await window.api.util.exportImage(item.image_path!)
-                  if (r.success) toast.success(t.toastImageSaved)
+                  if (item.image_path) {
+                    const r = await window.api.util.exportImage(item.image_path)
+                    if (r.success) toast.success(t.toastImageSaved)
+                  } else if (item.url) {
+                    window.api.util.openUrl(item.url)
+                  }
                 }}
                 className="p-1.5 rounded-lg text-text-muted hover:bg-card hover:text-text-primary transition-colors"
               >
@@ -156,8 +162,14 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
         {/* Image preview */}
-        {item.type === 'image' && item.image_path && (
-          <img src={toFileUrl(item.image_path)} alt={item.title ?? ''} loading="lazy" className="w-full rounded-xl object-contain max-h-56 bg-border" />
+        {item.type === 'image' && !imgError && (item.image_path || item.url?.startsWith('http')) && (
+          <img
+            src={item.image_path ? toFileUrl(item.image_path) : item.url!}
+            alt={item.title ?? ''}
+            loading="lazy"
+            className="w-full rounded-xl object-contain max-h-64 bg-card"
+            onError={() => setImgError(true)}
+          />
         )}
 
         {/* Title + meta */}
@@ -268,7 +280,7 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
         <div>
           <p className="text-[10px] text-text-muted uppercase tracking-widest mb-1.5">{t.tagsLabel}</p>
           <TagSelector
-            selectedIds={item.tags.map((tg) => tg.id)}
+            selectedIds={(item.tags ?? []).map((tg) => tg.id)}
             onChange={(ids) => updateItem(item.id, { tagIds: ids })}
           />
         </div>

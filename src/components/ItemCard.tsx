@@ -29,6 +29,7 @@ export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
   const { pinItem, deleteItem, duplicateItem, selectItem, selectedItem, settings, selectedIds, toggleSelect } = useStore()
   const t = useT()
   const [faviconError, setFaviconError] = useState(false)
+  const [imgError,     setImgError]     = useState(false)
 
   const isSelected   = selectedItem?.id === item.id
   const isChecked    = selectedIds.has(item.id)
@@ -171,8 +172,14 @@ export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
           >
             <SelectionDot />
             <div className="w-full bg-black/20 shrink-0 overflow-hidden relative flex">
-              {item.image_path ? (
-                <img src={toFileUrl(item.image_path)} alt={item.title || 'Image'} loading="lazy" className="w-full h-auto block" />
+              {!imgError && (item.image_path || item.url?.startsWith('http')) ? (
+                <img
+                  src={item.image_path ? toFileUrl(item.image_path) : item.url!}
+                  alt={item.title || 'Image'}
+                  loading="lazy"
+                  className="w-full h-auto block"
+                  onError={() => setImgError(true)}
+                />
               ) : (
                 <div className="flex items-center justify-center w-full aspect-video text-text-muted">
                   <Image className="w-8 h-8 opacity-20" />

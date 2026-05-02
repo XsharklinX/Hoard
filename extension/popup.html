@@ -5,241 +5,567 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Hoard</title>
   <style>
+    :root {
+      --bg:           #0e0e10;
+      --surface:      #18181c;
+      --card:         #1a1a20;
+      --border:       #2a2a32;
+      --border-focus: rgba(201,149,42,0.4);
+      --text-primary: #f0f0f4;
+      --text-sec:     #a0a0b0;
+      --text-muted:   #555568;
+      --gold:         #c9952a;
+      --gold-light:   #e0a830;
+      --gold-dim:     rgba(201,149,42,0.12);
+      --green:        #4ade80;
+      --red:          #f87171;
+      --blue:         #60a5fa;
+      --radius-sm:    6px;
+      --radius-md:    9px;
+      --radius-lg:    12px;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      width: 340px;
-      min-height: 200px;
-      background: #0e0e10;
-      color: #e2e2e8;
+      width: 360px;
+      background: var(--bg);
+      color: var(--text-primary);
       font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
       font-size: 13px;
+      line-height: 1.4;
+      -webkit-font-smoothing: antialiased;
     }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
     /* ── Header ── */
     .header {
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 14px 16px 12px;
-      border-bottom: 1px solid #1e1e24;
+      gap: 8px;
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(201,149,42,0.04) 0%, transparent 100%);
     }
-    .logo { width: 24px; height: 24px; border-radius: 6px; }
-    .header h1 { font-size: 15px; font-weight: 700; color: #f0f0f4; flex: 1; }
-    .status-dot {
-      width: 8px; height: 8px; border-radius: 50%;
-      background: #444;
-      transition: background 0.3s;
-    }
-    .status-dot.online  { background: #4ade80; box-shadow: 0 0 6px #4ade8066; }
-    .status-dot.offline { background: #f87171; }
 
-    /* ── Save current page ── */
-    .save-bar {
-      padding: 12px 14px;
-      border-bottom: 1px solid #1e1e24;
+    .logo {
+      width: 22px; height: 22px;
+      border-radius: var(--radius-sm);
+      flex-shrink: 0;
     }
-    .url-row {
+
+    .header-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    .vault-wrap {
+      flex: 1;
+      min-width: 0;
+      position: relative;
+    }
+
+    .vault-select {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 4px 22px 4px 8px;
+      color: var(--gold);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      outline: none;
+      appearance: none;
+      -webkit-appearance: none;
+      transition: border-color 0.15s;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23555568' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 6px center;
+    }
+    .vault-select:focus { border-color: var(--border-focus); }
+    .vault-select option { background: var(--card); }
+
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #333;
+      flex-shrink: 0;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .status-dot.online  { background: var(--green); box-shadow: 0 0 6px rgba(74,222,128,0.5); }
+    .status-dot.offline { background: var(--red); }
+
+    /* ── Save section ── */
+    .save-section {
+      padding: 10px 12px 12px;
+      border-bottom: 1px solid var(--border);
       display: flex;
-      gap: 6px;
-      align-items: center;
+      flex-direction: column;
+      gap: 8px;
     }
+
+    /* Save current page */
+    .save-current {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      width: 100%;
+      text-align: left;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .save-current:hover:not(.saved) { border-color: rgba(201,149,42,0.35); background: #1c1b14; }
+    .save-current.saved  { border-color: rgba(74,222,128,0.25); background: rgba(74,222,128,0.04); cursor: default; }
+
+    .page-favicon {
+      width: 14px; height: 14px;
+      border-radius: 3px;
+      flex-shrink: 0;
+      background: var(--border);
+    }
+    .page-title {
+      flex: 1;
+      font-size: 11px;
+      color: var(--text-sec);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .action-label {
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+      letter-spacing: -0.01em;
+    }
+    .action-label.save-lbl  { color: var(--gold); }
+    .action-label.saved-lbl { color: var(--green); }
+
+    /* URL row */
+    .url-row { display: flex; gap: 6px; align-items: center; }
+
     .url-input {
       flex: 1;
-      background: #18181c;
-      border: 1px solid #2a2a32;
-      border-radius: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
       padding: 7px 10px;
-      color: #e2e2e8;
+      color: var(--text-primary);
       font-size: 12px;
       outline: none;
-      transition: border-color 0.2s;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
-    .url-input:focus { border-color: #c9952a; }
+    .url-input::placeholder { color: var(--text-muted); }
+    .url-input:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px rgba(201,149,42,0.08);
+    }
+
     .btn-save {
-      background: #c9952a;
+      background: var(--gold);
       color: #0e0e10;
       border: none;
-      border-radius: 8px;
+      border-radius: var(--radius-md);
       padding: 7px 14px;
       font-size: 12px;
       font-weight: 700;
       cursor: pointer;
       white-space: nowrap;
-      transition: background 0.2s, transform 0.1s;
+      transition: background 0.15s, transform 0.1s;
+      letter-spacing: -0.01em;
     }
-    .btn-save:hover   { background: #e0a830; }
-    .btn-save:active  { transform: scale(0.97); }
-    .btn-save:disabled { background: #443520; color: #7a6040; cursor: not-allowed; }
+    .btn-save:hover  { background: var(--gold-light); }
+    .btn-save:active { transform: scale(0.97); }
+    .btn-save:disabled { background: rgba(201,149,42,0.25); color: rgba(201,149,42,0.5); cursor: not-allowed; }
 
-    .save-current {
+    /* Folder + Tags */
+    .meta-row {
+      display: flex;
+      gap: 6px;
+      align-items: flex-start;
+    }
+
+    .folder-select {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 5px 8px;
+      color: var(--text-primary);
+      font-size: 11px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .folder-select:focus { border-color: var(--border-focus); }
+    .folder-select option { background: var(--card); }
+
+    .tags-wrap {
+      flex: 1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      max-height: 56px;
+      overflow-y: auto;
+    }
+    .tag-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: opacity 0.15s, border-color 0.15s, transform 0.1s;
+      opacity: 0.4;
+      color: #fff;
+      user-select: none;
+    }
+    .tag-pill:hover { opacity: 0.7; }
+    .tag-pill.selected { opacity: 1; border-color: rgba(255,255,255,0.35); transform: scale(1.04); }
+    .tags-empty { font-size: 10px; color: var(--text-muted); padding: 4px 0; }
+
+    /* Quick note */
+    .note-toggle {
       display: flex;
       align-items: center;
-      gap: 6px;
-      margin-top: 8px;
-      padding: 7px 10px;
-      background: #18181c;
-      border: 1px solid #2a2a32;
-      border-radius: 8px;
+      gap: 5px;
+      padding: 0;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 11px;
       cursor: pointer;
-      transition: border-color 0.2s, background 0.2s;
+      transition: color 0.15s;
+      width: fit-content;
+    }
+    .note-toggle:hover { color: var(--gold); }
+    .note-toggle svg { width: 12px; height: 12px; }
+
+    .note-section { display: none; }
+    .note-section.open { display: flex; flex-direction: column; gap: 6px; }
+
+    .note-textarea {
       width: 100%;
-      text-align: left;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 8px 10px;
+      color: var(--text-primary);
+      font-size: 12px;
+      outline: none;
+      resize: none;
+      font-family: inherit;
+      line-height: 1.5;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
-    .save-current:hover { border-color: #c9952a33; background: #1e1c14; }
-    .save-current .page-favicon {
-      width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0;
-      background: #2a2a32;
+    .note-textarea::placeholder { color: var(--text-muted); }
+    .note-textarea:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px rgba(201,149,42,0.08);
     }
-    .save-current .page-title {
-      flex: 1; font-size: 12px; color: #a0a0b0;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+
+    .btn-save-note {
+      width: 100%;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 7px;
+      color: var(--gold);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
     }
-    .save-current .save-label {
-      font-size: 11px; font-weight: 600; color: #c9952a; flex-shrink: 0;
-    }
+    .btn-save-note:hover { background: rgba(201,149,42,0.08); border-color: rgba(201,149,42,0.3); }
+    .btn-save-note:disabled { opacity: 0.4; cursor: not-allowed; }
 
     /* ── Toast ── */
     .toast {
       display: none;
       align-items: center;
       gap: 6px;
-      margin: 0 14px;
+      margin: 0 12px 8px;
       padding: 8px 10px;
-      border-radius: 8px;
+      border-radius: var(--radius-md);
       font-size: 12px;
       font-weight: 500;
-      margin-bottom: 8px;
     }
-    .toast.success { display: flex; background: #0d2b1a; color: #4ade80; border: 1px solid #14532d44; }
-    .toast.error   { display: flex; background: #2b0d0d; color: #f87171; border: 1px solid #7f1d1d44; }
+    .toast.success { display: flex; background: rgba(74,222,128,0.08); color: var(--green); border: 1px solid rgba(74,222,128,0.2); }
+    .toast.error   { display: flex; background: rgba(248,113,113,0.08); color: var(--red);   border: 1px solid rgba(248,113,113,0.2); }
+    .toast.info    { display: flex; background: rgba(96,165,250,0.08);  color: var(--blue);  border: 1px solid rgba(96,165,250,0.2); }
 
     /* ── Recent ── */
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 14px 4px;
+    }
     .section-title {
-      padding: 10px 14px 6px;
       font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #555568;
+      letter-spacing: 0.09em;
+      color: var(--text-muted);
     }
 
-    .recent-list { padding: 0 8px 10px; }
+    .recent-list {
+      padding: 0 6px 4px;
+      max-height: 210px;
+      overflow-y: auto;
+    }
 
     .recent-item {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 7px 8px;
-      border-radius: 8px;
+      padding: 6px 8px;
+      border-radius: var(--radius-md);
       cursor: pointer;
-      transition: background 0.15s;
+      transition: background 0.12s;
     }
-    .recent-item:hover { background: #18181c; }
+    .recent-item:hover { background: var(--surface); }
 
     .recent-icon {
-      width: 28px; height: 28px;
-      border-radius: 7px;
-      background: #18181c;
-      border: 1px solid #22222a;
-      display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0; overflow: hidden;
+      width: 26px; height: 26px;
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      border: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      overflow: hidden;
     }
-    .recent-icon img { width: 16px; height: 16px; object-fit: contain; }
-    .recent-icon .type-dot {
-      width: 8px; height: 8px; border-radius: 50%;
-    }
+    .recent-icon img { width: 14px; height: 14px; object-fit: contain; }
+    .recent-icon .type-dot { width: 7px; height: 7px; border-radius: 50%; }
     .dot-link  { background: #38bdf8; }
     .dot-note  { background: #4ade80; }
     .dot-image { background: #c084fc; }
     .dot-code  { background: #fbbf24; }
 
     .recent-info { flex: 1; min-width: 0; }
-    .recent-title {
-      font-size: 12px; font-weight: 500; color: #d0d0dc;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-    .recent-meta {
-      font-size: 10px; color: #555568; margin-top: 1px;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    .recent-title { font-size: 11.5px; font-weight: 500; color: #d0d0de; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .recent-meta  { font-size: 10px; color: var(--text-muted); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ── Footer ── */
+    .footer {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px 10px;
     }
 
     .open-app-btn {
-      display: block;
-      width: calc(100% - 28px);
-      margin: 4px 14px 14px;
-      padding: 9px;
-      background: #18181c;
-      border: 1px solid #2a2a32;
-      border-radius: 10px;
-      color: #888899;
-      font-size: 12px;
+      flex: 1;
+      padding: 7px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text-muted);
+      font-size: 11px;
       font-weight: 500;
       cursor: pointer;
       text-align: center;
-      transition: border-color 0.2s, color 0.2s;
+      transition: border-color 0.15s, color 0.15s;
     }
-    .open-app-btn:hover { border-color: #c9952a44; color: #c9952a; }
+    .open-app-btn:hover { border-color: rgba(201,149,42,0.3); color: var(--gold); }
 
-    .offline-msg {
-      padding: 20px 16px;
-      text-align: center;
-      color: #555568;
+    .import-btn {
+      padding: 7px 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .import-btn:hover { border-color: rgba(201,149,42,0.3); color: var(--gold); }
+
+    /* ── Import board button ── */
+    .import-board-btn {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      width: 100%;
+      padding: 8px 10px;
+      background: rgba(201,149,42,0.07);
+      border: 1px dashed rgba(201,149,42,0.3);
+      border-radius: var(--radius-md);
+      color: var(--gold);
       font-size: 12px;
-      line-height: 1.6;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      letter-spacing: -0.01em;
     }
-    .offline-msg strong { color: #f87171; display: block; margin-bottom: 4px; }
+    .import-board-btn:hover:not(:disabled) {
+      background: rgba(201,149,42,0.12);
+      border-color: rgba(201,149,42,0.5);
+    }
+    .import-board-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
 
+    /* ── Offline ── */
+    .offline-msg {
+      padding: 28px 18px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+    .offline-msg strong { color: var(--red); display: block; margin-bottom: 6px; font-size: 13px; }
+
+    /* ── Spinner ── */
     .spinner {
       display: inline-block;
-      width: 12px; height: 12px;
-      border: 2px solid #333;
-      border-top-color: #c9952a;
+      width: 11px; height: 11px;
+      border: 2px solid var(--border);
+      border-top-color: var(--gold);
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
       flex-shrink: 0;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Progress bar (bookmark import) ── */
+    .import-progress {
+      display: none;
+      flex-direction: column;
+      gap: 4px;
+      margin: 0 12px 8px;
+      padding: 8px 10px;
+      background: rgba(201,149,42,0.06);
+      border: 1px solid rgba(201,149,42,0.2);
+      border-radius: var(--radius-md);
+    }
+    .import-progress.visible { display: flex; }
+    .import-progress-text { font-size: 11px; color: var(--gold); }
+    .import-progress-bar-track {
+      height: 3px;
+      background: var(--border);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .import-progress-bar-fill {
+      height: 100%;
+      background: var(--gold);
+      border-radius: 99px;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
   </style>
 </head>
 <body>
   <!-- Header -->
   <div class="header">
     <img class="logo" src="icon.png" alt="Hoard">
-    <h1>Hoard</h1>
+    <span class="header-title">Hoard</span>
+    <div class="vault-wrap">
+      <select class="vault-select" id="vaultSelect" title="Active vault"></select>
+    </div>
     <div class="status-dot" id="statusDot"></div>
   </div>
 
-  <!-- Content when online -->
+  <!-- Online view -->
   <div id="onlineView" style="display:none">
-    <!-- Save bar -->
-    <div class="save-bar">
-      <!-- Save current tab button -->
+
+    <!-- Save section -->
+    <div class="save-section">
+
+      <!-- Save current page -->
       <button class="save-current" id="saveCurrentBtn">
         <img class="page-favicon" id="pageFavicon" src="" alt="">
-        <span class="page-title" id="pageTitle">Loading current page…</span>
-        <span class="save-label">Save ↗</span>
+        <span class="page-title" id="pageTitle">Loading…</span>
+        <span class="action-label save-lbl" id="saveLabel">Save ↗</span>
       </button>
 
-      <!-- Manual URL input -->
-      <div class="url-row" style="margin-top:8px">
-        <input class="url-input" id="urlInput" type="url" placeholder="Or paste any URL…">
+      <!-- Manual URL -->
+      <div class="url-row">
+        <input class="url-input" id="urlInput" type="url" placeholder="Or paste any URL…" autocomplete="off" spellcheck="false">
         <button class="btn-save" id="saveUrlBtn">Save</button>
+      </div>
+
+      <!-- Folder + Tags -->
+      <div class="meta-row" id="metaRow" style="display:none">
+        <select class="folder-select" id="folderSelect" title="Folder">
+          <option value="">No folder</option>
+        </select>
+        <div class="tags-wrap" id="tagsWrap">
+          <span class="tags-empty">No tags</span>
+        </div>
+      </div>
+
+      <!-- Quick note toggle -->
+      <button class="note-toggle" id="noteToggle">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="2" width="12" height="12" rx="2"/>
+          <line x1="5" y1="6" x2="11" y2="6"/>
+          <line x1="5" y1="9" x2="9" y2="9"/>
+        </svg>
+        Quick note
+      </button>
+
+      <!-- Quick note input -->
+      <div class="note-section" id="noteSection">
+        <textarea class="note-textarea" id="noteText" rows="3" placeholder="Write a quick note…"></textarea>
+        <button class="btn-save-note" id="saveNoteBtn">Save note  ⌘↵</button>
       </div>
     </div>
 
-    <!-- Toast notification -->
+    <!-- Import board (contextual) -->
+    <div id="importBoardBar" style="display:none; padding: 0 12px 8px;">
+      <button id="importBoardBtn" class="import-board-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0">
+          <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+          <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+        </svg>
+        <span id="importBoardLabel">Import images from page</span>
+      </button>
+    </div>
+
+    <!-- Toast -->
     <div class="toast" id="toast"></div>
 
-    <!-- Recent items -->
-    <div class="section-title">Recently saved</div>
+    <!-- Import progress -->
+    <div class="import-progress" id="importProgress">
+      <div class="import-progress-text" id="importProgressText">Importing bookmarks…</div>
+      <div class="import-progress-bar-track">
+        <div class="import-progress-bar-fill" id="importProgressFill"></div>
+      </div>
+    </div>
+
+    <!-- Recently saved -->
+    <div class="section-header">
+      <span class="section-title">Recently saved</span>
+    </div>
     <div class="recent-list" id="recentList"></div>
 
-    <!-- Open app button -->
-    <button class="open-app-btn" id="openAppBtn">Open Hoard app ↗</button>
+    <!-- Footer -->
+    <div class="footer">
+      <button class="open-app-btn" id="openAppBtn">Open Hoard ↗</button>
+      <button class="import-btn" id="importBtn" title="Import browser bookmarks">⬆ Bookmarks</button>
+      <input type="file" id="bookmarkFile" accept=".html,.htm" style="display:none">
+    </div>
   </div>
 
-  <!-- Content when offline -->
+  <!-- Offline view -->
   <div id="offlineView" style="display:none">
     <div class="offline-msg">
       <strong>Hoard is not running</strong>
