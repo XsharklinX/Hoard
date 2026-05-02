@@ -4,12 +4,14 @@ import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useMemo } from 'react'
 import {
   Bold, Italic, Strikethrough, Code, List, ListOrdered,
   ListTodo, Link as LinkIcon, Minus, Undo, Redo, Heading2
 } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { createItemLinkExtension } from './ItemLinkExtension'
+import { useStore } from '../store'
 
 interface NoteEditorProps {
   content: string
@@ -20,13 +22,17 @@ interface NoteEditorProps {
 }
 
 export function NoteEditor({ content, readOnly = false, onChange, onBlur, placeholder }: NoteEditorProps) {
+  const { selectedVault } = useStore()
+  const vaultId = selectedVault?.id
+  const itemLinkExt = useMemo(() => createItemLinkExtension(vaultId), [vaultId])
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
-      Placeholder.configure({ placeholder: placeholder ?? 'Write your note…' }),
+      Placeholder.configure({ placeholder: placeholder ?? 'Write your note… (type [[ to link items)' }),
       Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-blue-400 underline cursor-pointer' } }),
       TaskList,
-      TaskItem.configure({ nested: true })
+      TaskItem.configure({ nested: true }),
+      itemLinkExt
     ],
     content: normalizeContent(content),
     editable: !readOnly,

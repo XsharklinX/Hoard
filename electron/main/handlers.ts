@@ -1,4 +1,4 @@
-import { ipcMain, shell, dialog, app } from 'electron'
+import { ipcMain, shell, dialog, app, BrowserWindow } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import https from 'https'
@@ -41,9 +41,17 @@ export function registerHandlers(): void {
     }
     return item
   })
-  ipcMain.handle('item:update', (_e, id: number, data: Partial<CreateItemData>)  => itemQueries.update(id, data))
-  ipcMain.handle('item:pin',    (_e, id: number, pinned: boolean)                => { itemQueries.pin(id, pinned) })
-  ipcMain.handle('item:delete', (_e, id: number)                                 => { itemQueries.delete(id) })
+  ipcMain.handle('item:update',      (_e, id: number, data: Partial<CreateItemData>) => itemQueries.update(id, data))
+  ipcMain.handle('item:pin',         (_e, id: number, pinned: boolean)               => { itemQueries.pin(id, pinned) })
+  ipcMain.handle('item:delete',      (_e, id: number)                                => { itemQueries.delete(id) })
+  ipcMain.handle('item:set-read',    (_e, id: number, status: 'unread' | 'read')     => { itemQueries.update(id, { readStatus: status }) })
+  ipcMain.handle('item:search-items',(_e, vaultId: number, q: string)                => itemQueries.searchForLink(vaultId, q))
+  ipcMain.handle('item:tag-selected',(_e, ids: number[], tagIds: number[])           => {
+    for (const id of ids) itemQueries.update(id, { tagIds })
+  })
+  ipcMain.handle('item:open-reader', (_e, archivePath: string, title: string)        => {
+    openReaderWindow(archivePath, title)
+  })
 
   // ── Tags ─────────────────────────────────────────────────────────────────────
   ipcMain.handle('tag:list',         (_e, vaultId: number)                           => tagQueries.list(vaultId))
@@ -265,6 +273,33 @@ export function registerHandlers(): void {
   ipcMain.handle('item:folder-counts', (_e, vaultId: number) =>
     itemQueries.folderCounts(vaultId)
   )
+}
+
+// ── Reader window ─────────────────────────────────────────────────────────────
+function openReaderWindow(archivePath: string, title: string): void {
+  const win = new BrowserWindow({
+    width: 860,
+    height: 900,
+    title: `Reader — ${title}`,
+    backgroundColor: '#0f0f0f',
+    webPreferences: { nodeIntegration: false, contextIsolation: true }
+  })
+
+  win.loadURL(`file:///${archivePath.replace(/\\/g, '/')}`)
+
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.insertCSS(`
+      *{box-sizing:border-box}
+      html,body{background:#0f0f0f!important;color:#d4d4d4!important;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif!important;max-width:700px!important;margin:0 auto!important;padding:24px 20px!important;font-size:17px!important;line-height:1.75!important}
+      a{color:#7eb8f7!important}
+      img{max-width:100%!important;border-radius:8px}
+      pre,code{background:#1a1a1a!important;color:#ccc!important;border-radius:6px;padding:2px 6px;font-size:14px}
+      pre{padding:16px!important;overflow:auto}
+      h1,h2,h3,h4{color:#f0f0f0!important;font-weight:600}
+      blockquote{border-left:3px solid #555;margin-left:0;padding-left:16px;color:#999!important}
+      ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:#333;border-radius:3px}
+    `)
+  })
 }
 
 // Parse Netscape HTML bookmark format (Chrome, Firefox, Edge, Safari all use this)

@@ -50,6 +50,7 @@ export interface Item {
   code_lang: string | null
   archive_path: string | null
   archive_status: 'pending' | 'done' | 'failed' | null
+  read_status: 'unread' | 'read'
   is_pinned: 0 | 1
   created_at: number
   updated_at: number
@@ -68,6 +69,9 @@ export interface CreateItemData {
   readingTime?: number
   codeLang?: string
   tagIds?: number[]
+  readStatus?: 'unread' | 'read'
+  archiveStatus?: 'pending' | 'done' | 'failed'
+  archivePath?: string
 }
 
 export interface UrlMetadata {
@@ -103,16 +107,20 @@ declare global {
         delete: (id: number) => Promise<void>
       }
       items: {
-        counts: (vaultId: number) => Promise<{ all: number, link: number, note: number, image: number, code: number }>
-        list: (params: { vaultId: number; folderId?: number | null; search?: string; tagId?: number | null; type?: ItemType | null }) => Promise<Item[]>
-        create: (data: CreateItemData) => Promise<Item>
-        update: (id: number, data: Partial<CreateItemData>) => Promise<Item>
-        pin: (id: number, pinned: boolean) => Promise<void>
-        delete: (id: number) => Promise<void>
+        counts:       (vaultId: number) => Promise<{ all: number, link: number, note: number, image: number, code: number }>
+        list:         (params: { vaultId: number; folderId?: number | null; search?: string; tagId?: number | null; type?: ItemType | null; readStatus?: string | null }) => Promise<Item[]>
+        create:       (data: CreateItemData) => Promise<Item>
+        update:       (id: number, data: Partial<CreateItemData>) => Promise<Item>
+        pin:          (id: number, pinned: boolean) => Promise<void>
+        delete:       (id: number) => Promise<void>
+        setReadStatus:(id: number, status: 'unread' | 'read') => Promise<void>
         move:         (id: number, targetVaultId: number, targetFolderId?: number | null) => Promise<Item>
         copy:         (id: number, targetVaultId: number, targetFolderId?: number | null) => Promise<Item>
         duplicate:    (id: number) => Promise<Item>
         folderCounts: (vaultId: number) => Promise<Record<number, number>>
+        searchItems:  (vaultId: number, q: string) => Promise<Array<{ id: number; title: string | null; type: string }>>
+        openReader:   (archivePath: string, title: string) => Promise<void>
+        tagSelected:  (ids: number[], tagIds: number[]) => Promise<void>
       }
       tags: {
         list: (vaultId: number) => Promise<Tag[]>

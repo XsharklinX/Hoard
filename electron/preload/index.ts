@@ -22,10 +22,14 @@ contextBridge.exposeInMainWorld('api', {
     update: (id: number, data: unknown)                                                            => ipcRenderer.invoke('item:update', id, data),
     pin:    (id: number, pinned: boolean)                                                          => ipcRenderer.invoke('item:pin', id, pinned),
     delete: (id: number)                                                                           => ipcRenderer.invoke('item:delete', id),
+    setReadStatus:(id: number, status: 'unread' | 'read')                               => ipcRenderer.invoke('item:set-read', id, status),
     move:         (id: number, targetVaultId: number, targetFolderId?: number | null)    => ipcRenderer.invoke('item:move', id, targetVaultId, targetFolderId),
     copy:         (id: number, targetVaultId: number, targetFolderId?: number | null)    => ipcRenderer.invoke('item:copy', id, targetVaultId, targetFolderId),
     duplicate:    (id: number)                                                           => ipcRenderer.invoke('item:duplicate', id),
-    folderCounts: (vaultId: number)                                                      => ipcRenderer.invoke('item:folder-counts', vaultId)
+    folderCounts: (vaultId: number)                                                      => ipcRenderer.invoke('item:folder-counts', vaultId),
+    searchItems:  (vaultId: number, q: string)                                          => ipcRenderer.invoke('item:search-items', vaultId, q),
+    openReader:   (archivePath: string, title: string)                                  => ipcRenderer.invoke('item:open-reader', archivePath, title),
+    tagSelected:  (ids: number[], tagIds: number[])                                     => ipcRenderer.invoke('item:tag-selected', ids, tagIds)
   },
 
   tags: {

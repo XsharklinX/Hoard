@@ -502,5 +502,45 @@ function storageSet(obj) {
   return new Promise((resolve) => chrome.storage.local.set(obj, resolve))
 }
 
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  // Escape — close popup
+  if (e.key === 'Escape') { window.close(); return }
+
+  // Enter on save-current button area (not inside inputs or textareas)
+  const tag = document.activeElement?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+  // S — focus URL input
+  if (e.key === 's' || e.key === 'S') {
+    e.preventDefault()
+    $('urlInput')?.focus()
+    return
+  }
+
+  // N — open note section
+  if (e.key === 'n' || e.key === 'N') {
+    e.preventDefault()
+    const section = $('noteSection')
+    if (section && !section.classList.contains('open')) {
+      section.classList.add('open')
+      $('noteText')?.focus()
+    }
+    return
+  }
+
+  // Enter — save current page (when nothing else is focused)
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    if (!currentUrlSaved && currentTab?.url) $('saveCurrentBtn')?.click()
+    return
+  }
+})
+
+// Ctrl/Cmd+Enter inside URL input → save
+$('urlInput')?.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); saveFromInput() }
+})
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 init()

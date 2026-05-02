@@ -19,7 +19,7 @@ interface HoardStore {
   isLoading:      boolean
   settings:       AppSettings
   selectedItem:   Item | null
-  selectedType:   ItemType | 'all'
+  selectedType:   ItemType | 'all' | 'unread'
   itemCounts:     { all: number, link: number, note: number, image: number, code: number }
   folderCounts:   Record<number, number>
 
@@ -54,7 +54,8 @@ interface HoardStore {
   // ── Item actions ──────────────────────────────────────────────────────────
   setSearch:        (q: string) => Promise<void>
   setSort:          (sort: HoardStore['sortBy']) => void
-  selectType:       (type: ItemType | 'all') => Promise<void>
+  selectType:       (type: ItemType | 'all' | 'unread') => Promise<void>
+  setReadStatus:    (id: number, status: 'unread' | 'read') => Promise<void>
   loadCounts:       () => Promise<void>
   loadFolderCounts: () => Promise<void>
   createItem:       (data: Omit<CreateItemData, 'vaultId'>) => Promise<void>
@@ -280,8 +281,19 @@ export const useStore = create<HoardStore>((set, get) => ({
     const vault = get().selectedVault
     if (!vault) return
     set({ selectedType: type, selectedFolder: null, selectedTag: null, isLoading: true, selectedItem: null, selectedIds: new Set() })
-    const items = await window.api.items.list({ vaultId: vault.id, type: type === 'all' ? null : type })
+    const params = type === 'unread'
+      ? { vaultId: vault.id, readStatus: 'unread' }
+      : { vaultId: vault.id, type: type === 'all' ? null : type }
+    const items = await window.api.items.list(params)
     set({ items, isLoading: false })
+  },
+
+  setReadStatus: async (id, status) => {
+    await window.api.items.setReadStatus(id, status)
+    set((s) => ({
+      items:        s.items.map((i) => i.id === id ? { ...i, read_status: status } : i),
+      selectedItem: s.selectedItem?.id === id ? { ...s.selectedItem, read_status: status } : s.selectedItem
+    }))
   },
 
   setSort: (sort) => {

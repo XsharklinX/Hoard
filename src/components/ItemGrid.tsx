@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Search, Plus, X, Trash2, MoveRight, CheckSquare, Square, ArrowUpDown, CalendarDays, Download } from 'lucide-react'
+import { Search, Plus, X, Trash2, MoveRight, CheckSquare, Square, ArrowUpDown, CalendarDays, Download, Tag } from 'lucide-react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import * as Popover from '@radix-ui/react-popover'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import Masonry from 'react-masonry-css'
 import { useStore } from '../store'
@@ -44,7 +45,7 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
     items, searchQuery, setSearch, setSort, sortBy,
     isLoading, selectedVault, selectedFolder,
     selectedTag, settings, selectedIds, selectAll, clearSelection,
-    deleteSelected, selectedType, selectedItem, selectItem
+    deleteSelected, selectedType, selectedItem, selectItem, tags
   } = useStore()
   const t = useT()
   const scrollParentRef = useRef<HTMLDivElement>(null)
@@ -158,6 +159,18 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
       useStore.getState().createItem({ type: 'note', content: url, folderId: useStore.getState().selectedFolder?.id ?? null })
     }
   }, [])
+
+  const [bulkTagOpen, setBulkTagOpen] = useState(false)
+  const [bulkTagIds,  setBulkTagIds]  = useState<Set<number>>(new Set())
+
+  const handleBulkTag = async () => {
+    const ids = [...selectedIds]
+    await window.api.items.tagSelected(ids, [...bulkTagIds])
+    setBulkTagOpen(false)
+    setBulkTagIds(new Set())
+    toast.success(`Tags updated for ${ids.length} items`)
+    clearSelection()
+  }
 
   const handleDeleteSelected = async () => {
     if (await confirm(`Delete ${selectedIds.size} item${selectedIds.size === 1 ? '' : 's'}?`)) {
@@ -351,6 +364,45 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
                 <Download className="w-3.5 h-3.5" />
                 Download
               </button>
+              {/* Bulk tag popover */}
+              <Popover.Root open={bulkTagOpen} onOpenChange={setBulkTagOpen}>
+                <Popover.Trigger asChild>
+                  <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-card border border-border text-text-secondary hover:text-text-primary transition-colors">
+                    <Tag className="w-3.5 h-3.5" />
+                    Tag
+                  </button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content side="bottom" align="end" sideOffset={6} className="z-[400] w-52 bg-surface border border-border rounded-xl shadow-2xl p-3 flex flex-col gap-2">
+                    <p className="text-[10px] text-text-muted uppercase tracking-widest font-semibold">Apply tags to {selectedIds.size} items</p>
+                    <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
+                      {tags.map((tg) => (
+                        <label key={tg.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-card cursor-pointer text-xs text-text-secondary hover:text-text-primary transition-colors">
+                          <input
+                            type="checkbox"
+                            className="accent-gold w-3.5 h-3.5"
+                            checked={bulkTagIds.has(tg.id)}
+                            onChange={(e) => {
+                              const next = new Set(bulkTagIds)
+                              e.target.checked ? next.add(tg.id) : next.delete(tg.id)
+                              setBulkTagIds(next)
+                            }}
+                          />
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: tg.color }} />
+                          {tg.name}
+                        </label>
+                      ))}
+                      {tags.length === 0 && <p className="text-xs text-text-muted px-2">No tags yet</p>}
+                    </div>
+                    <button
+                      onClick={handleBulkTag}
+                      className="w-full py-1.5 rounded-lg bg-gold text-black text-xs font-semibold hover:bg-gold-light transition-colors"
+                    >
+                      Apply
+                    </button>
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
               <button
                 onClick={onMoveItems}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-card border border-border text-text-secondary hover:text-text-primary transition-colors"

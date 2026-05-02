@@ -1,37 +1,32 @@
-import initSqlJs from 'sql.js'
+import Database from 'better-sqlite3'
 import { app } from 'electron'
 import path from 'path'
 import fs from 'fs'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let db: any
+let db: Database.Database
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
 export function saveDb(): void {
-  const data: Uint8Array = db.export()
-  const dbPath = path.join(app.getPath('userData'), 'hoard.db')
-  fs.writeFileSync(dbPath, Buffer.from(data))
+  // better-sqlite3 handles persistence automatically.
 }
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
 
 function all<T = Record<string, unknown>>(sql: string, params?: unknown[]): T[] {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const stmt: any = db.prepare(sql)
-  if (params?.length) stmt.bind(params)
-  const rows: T[] = []
-  while (stmt.step()) rows.push(stmt.getAsObject() as T)
-  stmt.free()
-  return rows
+  const stmt = db.prepare(sql)
+  return (params?.length ? stmt.all(params) : stmt.all()) as T[]
 }
 
 function get<T = Record<string, unknown>>(sql: string, params?: unknown[]): T | null {
-  return all<T>(sql, params)[0] ?? null
+  const stmt = db.prepare(sql)
+  return (params?.length ? stmt.get(params) : stmt.get()) as T | null
 }
 
 function run(sql: string, params?: unknown[]): void {
-  db.run(sql, params)
+  const stmt = db.prepare(sql)
+  if (params?.length) stmt.run(params)
+  else stmt.run()
 }
 
 function insertReturning<T = Record<string, unknown>>(
@@ -39,10 +34,10 @@ function insertReturning<T = Record<string, unknown>>(
   sql: string,
   params?: unknown[]
 ): T {
-  run(sql, params)
-  const id = (db.exec('SELECT last_insert_rowid() as id')[0].values[0][0]) as number
+  const stmt = db.prepare(sql)
+  const info = params?.length ? stmt.run(params) : stmt.run()
+  const id = info.lastInsertRowid
   const row = get<T>(`SELECT * FROM ${table} WHERE id=?`, [id])
-  saveDb()
   return row!
 }
 
@@ -92,36 +87,36 @@ const MIGRATIONS: Array<{ version: number; up: () => void }> = [
     // Rebuild items table to add 'code' to type CHECK constraint
     version: 4,
     up: () => {
-      const tableSql = (db.exec("SELECT sql FROM sqlite_master WHERE type='table' AND name='items'")[0]?.values[0][0] as string) || ''
+      const tableSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='items'").get() as any)?.sql || ''
       if (tableSql.includes("'code'")) return
       run('PRAGMA foreign_keys = OFF')
-      run('BEGIN TRANSACTION')
-      run(`CREATE TABLE items_new (
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-        vault_id     INTEGER NOT NULL REFERENCES vaults(id)  ON DELETE CASCADE,
-        folder_id    INTEGER          REFERENCES folders(id) ON DELETE SET NULL,
-        type         TEXT    NOT NULL CHECK(type IN ('link','note','image','code')),
-        title        TEXT,
-        content      TEXT,
-        url          TEXT,
-        image_path   TEXT,
-        favicon      TEXT,
-        reading_time INTEGER,
-        code_lang    TEXT,
-        archive_path TEXT,
-        is_pinned    INTEGER NOT NULL DEFAULT 0,
-        created_at   INTEGER DEFAULT (strftime('%s','now')),
-        updated_at   INTEGER DEFAULT (strftime('%s','now'))
-      )`)
-      run(`INSERT INTO items_new
-             (id, vault_id, folder_id, type, title, content, url, image_path,
-              favicon, reading_time, code_lang, is_pinned, created_at, updated_at)
-           SELECT id, vault_id, folder_id, type, title, content, url, image_path,
-                  favicon, reading_time, code_lang, is_pinned, created_at, updated_at
-           FROM items`)
-      run('DROP TABLE items')
-      run('ALTER TABLE items_new RENAME TO items')
-      run('COMMIT')
+      db.transaction(() => {
+        run(`CREATE TABLE items_new (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          vault_id     INTEGER NOT NULL REFERENCES vaults(id)  ON DELETE CASCADE,
+          folder_id    INTEGER          REFERENCES folders(id) ON DELETE SET NULL,
+          type         TEXT    NOT NULL CHECK(type IN ('link','note','image','code')),
+          title        TEXT,
+          content      TEXT,
+          url          TEXT,
+          image_path   TEXT,
+          favicon      TEXT,
+          reading_time INTEGER,
+          code_lang    TEXT,
+          archive_path TEXT,
+          is_pinned    INTEGER NOT NULL DEFAULT 0,
+          created_at   INTEGER DEFAULT (strftime('%s','now')),
+          updated_at   INTEGER DEFAULT (strftime('%s','now'))
+        )`)
+        run(`INSERT INTO items_new
+               (id, vault_id, folder_id, type, title, content, url, image_path,
+                favicon, reading_time, code_lang, is_pinned, created_at, updated_at)
+             SELECT id, vault_id, folder_id, type, title, content, url, image_path,
+                    favicon, reading_time, code_lang, is_pinned, created_at, updated_at
+             FROM items`)
+        run('DROP TABLE items')
+        run('ALTER TABLE items_new RENAME TO items')
+      })()
       run('PRAGMA foreign_keys = ON')
     }
   },
@@ -131,6 +126,14 @@ const MIGRATIONS: Array<{ version: number; up: () => void }> = [
     up: () => {
       if (!columnExists('items', 'archive_status'))
         run("ALTER TABLE items ADD COLUMN archive_status TEXT CHECK(archive_status IN ('pending','done','failed'))")
+    }
+  },
+  {
+    // read_status on items
+    version: 6,
+    up: () => {
+      if (!columnExists('items', 'read_status'))
+        run("ALTER TABLE items ADD COLUMN read_status TEXT NOT NULL DEFAULT 'unread' CHECK(read_status IN ('unread','read'))")
     }
   }
 ]
@@ -143,53 +146,50 @@ function applyMigrations(): void {
       setSchemaVersion(m.version)
     }
   }
-  saveDb()
 }
 
 function setupFts(): void {
-  run('DROP TRIGGER IF EXISTS items_ai')
-  run('DROP TRIGGER IF EXISTS items_ad')
-  run('DROP TRIGGER IF EXISTS items_au')
-  run('DROP TRIGGER IF EXISTS items_bu')
-  run('DROP TABLE IF EXISTS items_fts')
-  run('CREATE VIRTUAL TABLE items_fts USING fts4(title, body, url)')
-  run(`INSERT INTO items_fts(docid, title, body, url)
-       SELECT id, COALESCE(title,''), COALESCE(content,''), COALESCE(url,'') FROM items`)
-  run(`CREATE TRIGGER items_ai AFTER INSERT ON items BEGIN
-    INSERT INTO items_fts(docid, title, body, url)
-      VALUES (new.id, COALESCE(new.title,''), COALESCE(new.content,''), COALESCE(new.url,''));
-  END`)
-  run(`CREATE TRIGGER items_bu BEFORE UPDATE ON items BEGIN
-    DELETE FROM items_fts WHERE docid = old.id;
-  END`)
-  run(`CREATE TRIGGER items_au AFTER UPDATE ON items BEGIN
-    INSERT INTO items_fts(docid, title, body, url)
-      VALUES (new.id, COALESCE(new.title,''), COALESCE(new.content,''), COALESCE(new.url,''));
-  END`)
-  run(`CREATE TRIGGER items_ad BEFORE DELETE ON items BEGIN
-    DELETE FROM items_fts WHERE docid = old.id;
-  END`)
+  db.transaction(() => {
+    run('DROP TRIGGER IF EXISTS items_ai')
+    run('DROP TRIGGER IF EXISTS items_ad')
+    run('DROP TRIGGER IF EXISTS items_au')
+    run('DROP TRIGGER IF EXISTS items_bu')
+    run('DROP TABLE IF EXISTS items_fts')
+    run('CREATE VIRTUAL TABLE items_fts USING fts5(title, body, url, tags)')
+    run(`INSERT INTO items_fts(rowid, title, body, url, tags)
+         SELECT i.id,
+                COALESCE(i.title,''),
+                COALESCE(i.content,''),
+                COALESCE(i.url,''),
+                COALESCE((SELECT GROUP_CONCAT(t.name,' ') FROM item_tags it JOIN tags t ON t.id=it.tag_id WHERE it.item_id=i.id),'')
+         FROM items i`)
+    run(`CREATE TRIGGER items_ai AFTER INSERT ON items BEGIN
+      INSERT INTO items_fts(rowid, title, body, url, tags)
+        VALUES (new.id, COALESCE(new.title,''), COALESCE(new.content,''), COALESCE(new.url,''), '');
+    END`)
+    run(`CREATE TRIGGER items_bu BEFORE UPDATE ON items BEGIN
+      DELETE FROM items_fts WHERE rowid = old.id;
+    END`)
+    run(`CREATE TRIGGER items_au AFTER UPDATE ON items BEGIN
+      INSERT INTO items_fts(rowid, title, body, url, tags)
+        VALUES (new.id, COALESCE(new.title,''), COALESCE(new.content,''), COALESCE(new.url,''), '');
+    END`)
+    run(`CREATE TRIGGER items_ad BEFORE DELETE ON items BEGIN
+      DELETE FROM items_fts WHERE rowid = old.id;
+    END`)
+  })()
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 export async function initDb(password?: string): Promise<{ needsPassword?: boolean }> {
-  const wasmPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'sql-wasm.wasm')
-    : path.join(app.getAppPath(), 'resources/sql-wasm.wasm')
-
-  const SQL = await initSqlJs({ locateFile: () => wasmPath })
-
   const userDataPath = app.getPath('userData')
   const dbPath = path.join(userDataPath, 'hoard.db')
 
-  if (fs.existsSync(dbPath)) {
-    db = new SQL.Database(fs.readFileSync(dbPath))
-  } else {
-    db = new SQL.Database()
-  }
+  db = new Database(dbPath)
 
   run('PRAGMA foreign_keys = ON')
+  run('PRAGMA journal_mode = WAL')
 
   // ── Base schema (always idempotent, full current shape) ───────────────────
   run(`CREATE TABLE IF NOT EXISTS vaults (
@@ -250,10 +250,9 @@ export async function initDb(password?: string): Promise<{ needsPassword?: boole
   setupFts()
 
   // ── Seed default vault ────────────────────────────────────────────────────
-  const count = (db.exec('SELECT COUNT(*) c FROM vaults')[0]?.values[0][0] ?? 0) as number
+  const count = (db.prepare('SELECT COUNT(*) c FROM vaults').get() as any).c
   if (count === 0) {
     run("INSERT INTO vaults (name, color) VALUES ('My Hoard', '#c9952a')")
-    saveDb()
   }
 
   return { needsPassword: false }
@@ -269,13 +268,11 @@ export const vaultQueries = {
 
   update: (id: number, name: string, color: string) => {
     run("UPDATE vaults SET name=?, color=?, updated_at=strftime('%s','now') WHERE id=?", [name, color, id])
-    saveDb()
     return get('SELECT * FROM vaults WHERE id=?', [id])
   },
 
   delete: (id: number) => {
     run('DELETE FROM vaults WHERE id=?', [id])
-    saveDb()
   }
 }
 
@@ -292,13 +289,11 @@ export const folderQueries = {
 
   update: (id: number, name: string, smartQuery?: string) => {
     run("UPDATE folders SET name=?, smart_query=?, updated_at=strftime('%s','now') WHERE id=?", [name, smartQuery ?? null, id])
-    saveDb()
     return get('SELECT * FROM folders WHERE id=?', [id])
   },
 
   delete: (id: number) => {
     run('DELETE FROM folders WHERE id=?', [id])
-    saveDb()
   }
 }
 
@@ -340,7 +335,7 @@ export const itemQueries = {
       'SELECT type, COUNT(*) as count FROM items WHERE vault_id=? GROUP BY type',
       [vaultId]
     )
-    const allCount = (db.exec(`SELECT COUNT(*) FROM items WHERE vault_id=${vaultId}`)[0]?.values[0][0] ?? 0) as number
+    const allCount = (db.prepare(`SELECT COUNT(*) c FROM items WHERE vault_id=${vaultId}`).get() as any).c
     const result = { all: allCount, link: 0, note: 0, image: 0, code: 0 }
     for (const row of rows) {
       if (row.type in result) result[row.type as keyof typeof result] = row.count
@@ -348,8 +343,8 @@ export const itemQueries = {
     return result
   },
 
-  list: (params: { vaultId: number; folderId?: number | null; search?: string; tagId?: number | null; type?: string | null }) => {
-    const { vaultId, folderId, search, tagId, type } = params
+  list: (params: { vaultId: number; folderId?: number | null; search?: string; tagId?: number | null; type?: string | null; readStatus?: string | null }) => {
+    const { vaultId, folderId, search, tagId, type, readStatus } = params
     let rows: Record<string, unknown>[]
     
     let baseQuery = 'SELECT i.* FROM items i '
@@ -357,15 +352,15 @@ export const itemQueries = {
     const queryParams: unknown[] = [vaultId]
 
     if (search?.trim()) {
-      const q = search.trim() + '*'
-      where.push('i.id IN (SELECT docid FROM items_fts WHERE items_fts MATCH ?)')
+      const q = search.trim().replace(/['"*]/g, ' ').trim() + '*'
+      where.push('i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)')
       queryParams.push(q)
     } else if (tagId != null) {
       baseQuery += 'JOIN item_tags it ON it.item_id = i.id '
       where.push('it.tag_id=?')
       queryParams.push(tagId)
     } else if (folderId != null) {
-      const folder = db.exec('SELECT smart_query FROM folders WHERE id=' + folderId)[0]?.values[0][0] as string | null
+      const folder = (db.prepare('SELECT smart_query FROM folders WHERE id=' + folderId).get() as any)?.smart_query as string | null
       if (folder) {
         try {
           const smart = JSON.parse(folder)
@@ -374,7 +369,7 @@ export const itemQueries = {
             queryParams.push(smart.type)
           }
           if (smart.search) {
-            where.push('i.id IN (SELECT docid FROM items_fts WHERE items_fts MATCH ?)')
+            where.push('i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)')
             queryParams.push(smart.search + '*')
           }
           if (smart.tagId) {
@@ -396,6 +391,11 @@ export const itemQueries = {
       queryParams.push(type)
     }
 
+    if (readStatus) {
+      where.push('i.read_status=?')
+      queryParams.push(readStatus)
+    }
+
     const fullQuery = `${baseQuery} WHERE ${where.join(' AND ')} ORDER BY i.is_pinned DESC, i.created_at DESC`
     rows = all(fullQuery, queryParams)
 
@@ -406,7 +406,7 @@ export const itemQueries = {
     const row = insertReturning(
       'items',
       `INSERT INTO items (vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, archive_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.vaultId,
         data.folderId ?? null,
@@ -423,10 +423,12 @@ export const itemQueries = {
     ) as { id: number }
 
     if (data.tagIds?.length) {
-      for (const tagId of data.tagIds) {
-        run('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)', [row.id, tagId])
-      }
-      saveDb()
+      const insertTag = db.prepare('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)')
+      db.transaction(() => {
+        for (const tagId of data.tagIds!) {
+          insertTag.run(row.id, tagId)
+        }
+      })()
     }
 
     return { ...row, tags: getTagsForItem(row.id) }
@@ -446,6 +448,10 @@ export const itemQueries = {
     if (data.readingTime !== undefined) { fields.push('reading_time=?'); values.push(data.readingTime) }
     if (data.imagePath   !== undefined) { fields.push('image_path=?');   values.push(data.imagePath) }
     if (data.url         !== undefined) { fields.push('url=?');          values.push(data.url) }
+    if ((data as any).readStatus !== undefined) {
+      fields.push('read_status=?')
+      values.push((data as any).readStatus)
+    }
 
     if (fields.length) {
       fields.push("updated_at=strftime('%s','now')")
@@ -454,68 +460,87 @@ export const itemQueries = {
     }
 
     if (data.tagIds !== undefined) {
-      run('DELETE FROM item_tags WHERE item_id=?', [id])
-      for (const tagId of data.tagIds) {
-        run('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)', [id, tagId])
-      }
+      db.transaction(() => {
+        run('DELETE FROM item_tags WHERE item_id=?', [id])
+        const insertTag = db.prepare('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)')
+        for (const tagId of data.tagIds!) {
+          insertTag.run(id, tagId)
+        }
+        // Re-sync FTS tags column after tag changes
+        const tagNames = all<{ name: string }>(
+          'SELECT t.name FROM tags t JOIN item_tags it ON t.id=it.tag_id WHERE it.item_id=?', [id]
+        ).map((r) => r.name).join(' ')
+        const src = get<{ title: string | null; content: string | null; url: string | null }>('SELECT title, content, url FROM items WHERE id=?', [id])
+        if (src) {
+          run('DELETE FROM items_fts WHERE rowid=?', [id])
+          run('INSERT INTO items_fts(rowid,title,body,url,tags) VALUES(?,?,?,?,?)',
+            [id, src.title ?? '', src.content ?? '', src.url ?? '', tagNames])
+        }
+      })()
     }
 
-    saveDb()
     const row = get<{ id: number }>('SELECT * FROM items WHERE id=?', [id])
     return { ...row, tags: getTagsForItem(id) }
   },
 
   pin: (id: number, pinned: boolean) => {
     run('UPDATE items SET is_pinned=? WHERE id=?', [pinned ? 1 : 0, id])
-    saveDb()
   },
 
   delete: (id: number) => {
     run('DELETE FROM items WHERE id=?', [id])
-    saveDb()
   },
 
   duplicate: (id: number) => {
-    const src = get<Record<string, unknown>>('SELECT * FROM items WHERE id=?', [id])
+    const src = get<Record<string, any>>('SELECT * FROM items WHERE id=?', [id])
     if (!src) throw new Error(`Item ${id} not found`)
     const tags = getTagsForItem(id) as Array<{ id: number }>
     const newTitle = src.title ? `${src.title} (copy)` : null
-    const row = insertReturning(
-      'items',
-      `INSERT INTO items (vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, archive_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at`,
-      [src.vault_id, src.folder_id, src.type, newTitle, src.content, src.url, src.image_path, src.favicon, src.reading_time, src.code_lang, null]
-    ) as { id: number }
-    for (const tag of tags) {
-      run('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)', [row.id, tag.id])
-    }
-    saveDb()
-    return { ...row, tags: getTagsForItem(row.id) }
+    
+    let newId: number = 0
+    db.transaction(() => {
+      const info = db.prepare(`INSERT INTO items (vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, archive_path)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        [src.vault_id, src.folder_id, src.type, newTitle, src.content, src.url, src.image_path, src.favicon, src.reading_time, src.code_lang, null]
+      )
+      newId = Number(info.lastInsertRowid)
+      const insertTag = db.prepare('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)')
+      for (const tag of tags) {
+        insertTag.run(newId, tag.id)
+      }
+    })()
+    
+    const row = get<{ id: number }>('SELECT * FROM items WHERE id=?', [newId])
+    return { ...row, tags: getTagsForItem(newId) }
   },
 
   move: (id: number, targetVaultId: number, targetFolderId?: number | null) => {
     run('UPDATE items SET vault_id=?, folder_id=?, updated_at=strftime(\'%s\',\'now\') WHERE id=?',
       [targetVaultId, targetFolderId ?? null, id])
-    saveDb()
     const row = get<{ id: number }>('SELECT * FROM items WHERE id=?', [id])
     return { ...row, tags: getTagsForItem(id) }
   },
 
   copy: (id: number, targetVaultId: number, targetFolderId?: number | null) => {
-    const src = get<Record<string, unknown>>('SELECT * FROM items WHERE id=?', [id])
+    const src = get<Record<string, any>>('SELECT * FROM items WHERE id=?', [id])
     if (!src) throw new Error(`Item ${id} not found`)
     const tags = getTagsForItem(id) as Array<{ id: number }>
-    const row = insertReturning(
-      'items',
-      `INSERT INTO items (vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, archive_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at`,
-      [targetVaultId, targetFolderId ?? null, src.type, src.title, src.content, src.url, src.image_path, src.favicon, src.reading_time, src.code_lang, null]
-    ) as { id: number }
-    for (const tag of tags) {
-      run('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)', [row.id, tag.id])
-    }
-    saveDb()
-    return { ...row, tags: getTagsForItem(row.id) }
+    
+    let newId: number = 0
+    db.transaction(() => {
+      const info = db.prepare(`INSERT INTO items (vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, archive_path)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        [targetVaultId, targetFolderId ?? null, src.type, src.title, src.content, src.url, src.image_path, src.favicon, src.reading_time, src.code_lang, null]
+      )
+      newId = Number(info.lastInsertRowid)
+      const insertTag = db.prepare('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)')
+      for (const tag of tags) {
+        insertTag.run(newId, tag.id)
+      }
+    })()
+    
+    const row = get<{ id: number }>('SELECT * FROM items WHERE id=?', [newId])
+    return { ...row, tags: getTagsForItem(newId) }
   },
 
   folderCounts: (vaultId: number): Record<number, number> => {
@@ -526,6 +551,22 @@ export const itemQueries = {
     const result: Record<number, number> = {}
     for (const row of rows) result[row.folder_id] = row.count
     return result
+  },
+
+  searchForLink: (vaultId: number, q: string) => {
+    if (!q.trim()) return []
+    const escaped = q.trim().replace(/['"*]/g, ' ').trim() + '*'
+    try {
+      return all<{ id: number; title: string | null; type: string }>(
+        'SELECT i.id, i.title, i.type FROM items i WHERE i.vault_id=? AND i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?) LIMIT 8',
+        [vaultId, escaped]
+      )
+    } catch {
+      return all<{ id: number; title: string | null; type: string }>(
+        "SELECT id, title, type FROM items WHERE vault_id=? AND title LIKE ? LIMIT 8",
+        [vaultId, `%${q}%`]
+      )
+    }
   }
 }
 
@@ -542,15 +583,16 @@ export const tagQueries = {
 
   delete: (id: number) => {
     run('DELETE FROM tags WHERE id=?', [id])
-    saveDb()
   },
 
   setItemTags: (itemId: number, tagIds: number[]) => {
-    run('DELETE FROM item_tags WHERE item_id=?', [itemId])
-    for (const tagId of tagIds) {
-      run('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)', [itemId, tagId])
-    }
-    saveDb()
+    db.transaction(() => {
+      run('DELETE FROM item_tags WHERE item_id=?', [itemId])
+      const insertTag = db.prepare('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)')
+      for (const tagId of tagIds) {
+        insertTag.run(itemId, tagId)
+      }
+    })()
   }
 }
 

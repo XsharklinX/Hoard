@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, Trash2, Archive, Settings, Tag, Link as LinkIcon, FileText, Image as ImageIcon, Code, Sparkles, Pencil } from 'lucide-react'
+import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, Trash2, Archive, Settings, Tag, Link as LinkIcon, FileText, Image as ImageIcon, Code, Sparkles, Pencil, Circle } from 'lucide-react'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import * as ContextMenu from '@radix-ui/react-context-menu'
 import { useStore } from '../store'
@@ -87,7 +87,7 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
     }
   }
 
-  const renderTypeFilter = (type: 'all' | 'link' | 'note' | 'image' | 'code', icon: React.ReactNode, label: string, count: number) => {
+  const renderTypeFilter = (type: 'all' | 'link' | 'note' | 'image' | 'code' | 'unread', icon: React.ReactNode, label: string, count?: number) => {
     const isSelected = selectedType === type && !selectedFolder && !selectedTag
     return (
       <div
@@ -98,7 +98,7 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
         onClick={() => selectType(type)}
       >
         <div className="flex items-center gap-2">{icon}<span>{label}</span></div>
-        <span className="text-xs text-text-muted">{count}</span>
+        {count != null && <span className="text-xs text-text-muted">{count}</span>}
       </div>
     )
   }
@@ -227,11 +227,12 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
 
             {/* Types */}
             <div className="flex flex-col gap-0.5">
-              {renderTypeFilter('all',   <Archive   className="w-3.5 h-3.5 shrink-0" />, t.allItems, itemCounts.all)}
-              {renderTypeFilter('link',  <LinkIcon  className="w-3.5 h-3.5 shrink-0" />, 'Links',    itemCounts.link)}
-              {renderTypeFilter('note',  <FileText  className="w-3.5 h-3.5 shrink-0" />, 'Notes',    itemCounts.note)}
-              {renderTypeFilter('image', <ImageIcon className="w-3.5 h-3.5 shrink-0" />, 'Images',   itemCounts.image)}
-              {renderTypeFilter('code',  <Code      className="w-3.5 h-3.5 shrink-0" />, 'Code',     itemCounts.code)}
+              {renderTypeFilter('all',    <Archive   className="w-3.5 h-3.5 shrink-0" />, t.allItems, itemCounts.all)}
+              {renderTypeFilter('unread', <Circle    className="w-3.5 h-3.5 shrink-0 text-sky-400 fill-sky-400/40" />, 'Unread')}
+              {renderTypeFilter('link',   <LinkIcon  className="w-3.5 h-3.5 shrink-0" />, 'Links',    itemCounts.link)}
+              {renderTypeFilter('note',   <FileText  className="w-3.5 h-3.5 shrink-0" />, 'Notes',    itemCounts.note)}
+              {renderTypeFilter('image',  <ImageIcon className="w-3.5 h-3.5 shrink-0" />, 'Images',   itemCounts.image)}
+              {renderTypeFilter('code',   <Code      className="w-3.5 h-3.5 shrink-0" />, 'Code',     itemCounts.code)}
             </div>
 
             {/* Folders */}

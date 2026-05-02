@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { X, ExternalLink, Pin, Trash2, Clock, Copy, Check, Link as LinkIcon, Archive, Loader2, AlertCircle, Pencil, Files, Download } from 'lucide-react'
+import { X, ExternalLink, Pin, Trash2, Clock, Copy, Check, Link as LinkIcon, Archive, Loader2, AlertCircle, Pencil, Files, Download, BookOpen, Circle } from 'lucide-react'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -64,7 +64,7 @@ interface PreviewPanelProps {
 }
 
 export function PreviewPanel({ onEdit }: PreviewPanelProps) {
-  const { selectedItem, pinItem, deleteItem, duplicateItem, selectItem, updateItem, settings } = useStore()
+  const { selectedItem, pinItem, deleteItem, duplicateItem, selectItem, updateItem, settings, setReadStatus } = useStore()
   const t = useT()
   const [copied, setCopied]           = useState(false)
   const [faviconError, setFaviconError] = useState(false)
@@ -112,6 +112,26 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
           {item.is_pinned === 1 && <Pin className="w-3 h-3 text-gold fill-current" />}
         </div>
         <div className="flex items-center gap-1">
+          {/* Read status toggle */}
+          <Tip label={item.read_status === 'unread' ? 'Mark as read' : 'Mark as unread'}>
+            <button
+              onClick={() => setReadStatus(item.id, item.read_status === 'unread' ? 'read' : 'unread')}
+              className={cn('p-1.5 rounded-lg transition-colors', item.read_status === 'unread' ? 'text-sky-400 hover:bg-sky-400/10' : 'text-text-muted hover:bg-card hover:text-sky-400')}
+            >
+              <Circle className={cn('w-3.5 h-3.5', item.read_status === 'unread' && 'fill-sky-400/40')} />
+            </button>
+          </Tip>
+          {/* Reader mode button — only for archived links */}
+          {item.type === 'link' && item.archive_status === 'done' && item.archive_path && (
+            <Tip label="Open in Reader">
+              <button
+                onClick={() => window.api.items.openReader(item.archive_path!, item.title || 'Article')}
+                className="p-1.5 rounded-lg text-text-muted hover:bg-card hover:text-emerald-400 transition-colors"
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+              </button>
+            </Tip>
+          )}
           {item.type === 'image' && (item.image_path || item.url?.startsWith('http')) && (
             <Tip label={t.downloadImage}>
               <button

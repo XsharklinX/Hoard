@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, Component } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
+import * as Tooltip from '@radix-ui/react-tooltip'
 import { toast } from './lib/toast'
 import { Sidebar } from './components/Sidebar'
 import { ItemGrid } from './components/ItemGrid'
@@ -146,6 +147,7 @@ export default function App() {
   if (appLocked) return <LockScreen onUnlock={handleUnlock} />
 
   return (
+    <Tooltip.Provider delayDuration={600}>
     <ErrorBoundary>
     <div className="flex h-full w-full overflow-hidden">
       <Sidebar
@@ -181,5 +183,6 @@ export default function App() {
       <ConfirmDialog />
     </div>
     </ErrorBoundary>
+    </Tooltip.Provider>
   )
 }

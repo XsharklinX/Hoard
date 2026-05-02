@@ -26,7 +26,7 @@ const TYPE_COLOR = {
 }
 
 export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
-  const { pinItem, deleteItem, duplicateItem, selectItem, selectedItem, settings, selectedIds, toggleSelect } = useStore()
+  const { pinItem, deleteItem, duplicateItem, selectItem, selectedItem, settings, selectedIds, toggleSelect, setReadStatus } = useStore()
   const t = useT()
   const [faviconError, setFaviconError] = useState(false)
   const [imgError,     setImgError]     = useState(false)
@@ -87,6 +87,8 @@ export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
     e.dataTransfer.effectAllowed = 'move'
   }
 
+  const isUnread = item.read_status === 'unread'
+
   const SelectionDot = () => (
     <div
       onClick={(e) => { e.stopPropagation(); toggleSelect(item.id) }}
@@ -106,6 +108,11 @@ export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
 
   const contextMenuContent = (
     <ContextMenu.Content className="z-[300] min-w-[160px] bg-surface border border-border rounded-xl shadow-2xl py-1.5 overflow-hidden">
+      <ContextMenu.Item className={menuItemCls} onSelect={() => setReadStatus(item.id, isUnread ? 'read' : 'unread')}>
+        <span className={cn('w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0', isUnread ? 'border-sky-400 bg-sky-400/30' : 'border-border')} />
+        {isUnread ? 'Mark as read' : 'Mark as unread'}
+      </ContextMenu.Item>
+      <ContextMenu.Separator className="my-1 h-px bg-border" />
       {item.url && (
         <>
           <ContextMenu.Item className={menuItemCls} onSelect={handleOpenUrl}>
@@ -336,6 +343,7 @@ export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
           onClick={handleClick}
         >
           <SelectionDot />
+          {isUnread && <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-sky-400 z-10 pointer-events-none" />}
           <div className="flex items-center justify-between mb-2.5">
             <div className="flex items-center gap-2 min-w-0">
               <div className="shrink-0 w-6 h-6 rounded-md overflow-hidden bg-background border border-border/50 flex items-center justify-center">
