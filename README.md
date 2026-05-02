@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/XsharklinX/Hoard/master/resources/hoard_hero.png" alt="Hoard Logo" width="300">
+  <img width="628" height="397" alt="Hoard Icon" src="https://github.com/user-attachments/assets/dbd78e3e-c9f4-458d-ad43-6d38310563f0" />
 </p>
 
 <h1 align="center">💎 Hoard v3.0</h1>
