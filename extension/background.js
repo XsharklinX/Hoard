@@ -1,10 +1,11 @@
 const API = 'http://127.0.0.1:43210'
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({ id: 'hoard-save-page',  title: 'Save Page to Hoard',       contexts: ['page'] })
-  chrome.contextMenus.create({ id: 'hoard-save-link',  title: 'Save Link to Hoard',        contexts: ['link'] })
-  chrome.contextMenus.create({ id: 'hoard-save-image', title: 'Save Image to Hoard',       contexts: ['image'] })
-  chrome.contextMenus.create({ id: 'hoard-save-video', title: 'Save Video Page to Hoard',  contexts: ['video'] })
+  chrome.contextMenus.create({ id: 'hoard-save-page',      title: 'Save Page to Hoard',           contexts: ['page'] })
+  chrome.contextMenus.create({ id: 'hoard-save-link',      title: 'Save Link to Hoard',            contexts: ['link'] })
+  chrome.contextMenus.create({ id: 'hoard-save-image',     title: 'Save Image to Hoard',           contexts: ['image'] })
+  chrome.contextMenus.create({ id: 'hoard-save-video',     title: 'Save Video Page to Hoard',      contexts: ['video'] })
+  chrome.contextMenus.create({ id: 'hoard-save-selection', title: 'Save Selection to Hoard',       contexts: ['selection'] })
 })
 
 // Read selected vault from persistent storage
@@ -83,5 +84,29 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
   } else if (info.menuItemId === 'hoard-save-video') {
     await sendToHoard({ type: 'link', url: info.pageUrl, title: tab?.title || info.pageUrl })
+
+  } else if (info.menuItemId === 'hoard-save-selection' && info.selectionText) {
+    const snippet = info.selectionText.trim().slice(0, 200)
+    const fullTitle = snippet.slice(0, 80) + (snippet.length > 80 ? '…' : '')
+    await sendToHoard({
+      type: 'note',
+      content: `${info.selectionText.trim()}\n\n— [${tab?.title || info.pageUrl}](${info.pageUrl})`,
+      title: fullTitle
+    })
   }
+})
+
+// ── Message from content script (selection bubble click) ─────────────────────
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.action !== 'hoard:save-selection') return
+  const text    = msg.text || ''
+  const pageUrl = msg.pageUrl || ''
+  const pageTitle = msg.pageTitle || pageUrl
+
+  const snippet = text.slice(0, 80) + (text.length > 80 ? '…' : '')
+  sendToHoard({
+    type:    'note',
+    content: `${text}\n\n— [${pageTitle}](${pageUrl})`,
+    title:   snippet
+  })
 })

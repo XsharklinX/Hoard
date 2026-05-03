@@ -28,8 +28,15 @@
   "host_permissions": [
     "http://127.0.0.1:43210/*"
   ],
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "web_accessible_resources": [
-    { "resources": ["content.js"], "matches": ["<all_urls>"] }
+    { "resources": ["content.js", "icon.png"], "matches": ["<all_urls>"] }
   ],
   "background": {
     "service_worker": "background.js"

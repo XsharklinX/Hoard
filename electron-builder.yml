@@ -6,16 +6,23 @@ directories:
 files:
   - out/**/*
   - '!**/{.eslintrc.js,eslint.config.mjs,.prettier*,.git,.gitignore}'
+# Unpack better-sqlite3 native binary from the asar archive so it can be dlopen'd
+asarUnpack:
+  - node_modules/better-sqlite3/**/*
+  - node_modules/bindings/**/*
+  - node_modules/file-uri-to-path/**/*
+# Include browser extension so users can load it directly from the app
 extraResources:
-  - from: resources/sql-wasm.wasm
-    to: sql-wasm.wasm
-npmRebuild: false
+  - from: extension
+    to: extension
+# Rebuild native modules against Electron's Node.js ABI before packaging
+npmRebuild: true
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
 win:
   executableName: Hoard
-  icon: resources/icon.ico
+  icon: resources/icon.png
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

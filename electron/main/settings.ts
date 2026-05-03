@@ -5,25 +5,53 @@ import fs from 'fs'
 export interface AppSettings {
   language: 'en' | 'es'
   showReadingTime: boolean
+  showFavicons: boolean
   defaultItemType: 'link' | 'note' | 'image' | 'code'
   compactView: boolean
+  minimizeToTray: boolean
   encryptionEnabled: boolean
   autoLockMinutes: number
   autoBackupEnabled: boolean
   autoBackupPath: string
   autoBackupIntervalDays: number
+  autoBackupLastRun: number
+  launchAtStartup: boolean
+  hasSeenWelcome: boolean
+  theme: 'dark' | 'light' | 'midnight'
+  viewMode: 'grid' | 'list'
+  aiProvider: 'none' | 'ollama' | 'claude' | 'gemini'
+  aiOllamaUrl: string
+  aiOllamaModel: string
+  aiClaudeApiKey: string
+  aiGeminiApiKey: string
+  syncFolderPath: string
+  syncFolderEnabled: boolean
 }
 
 const DEFAULTS: AppSettings = {
   language: 'en',
   showReadingTime: true,
+  showFavicons: true,
   defaultItemType: 'link',
   compactView: false,
+  minimizeToTray: true,
   encryptionEnabled: false,
   autoLockMinutes: 0,
   autoBackupEnabled: false,
   autoBackupPath: '',
-  autoBackupIntervalDays: 7
+  autoBackupIntervalDays: 7,
+  autoBackupLastRun: 0,
+  launchAtStartup: false,
+  hasSeenWelcome: false,
+  theme: 'dark',
+  viewMode: 'grid',
+  aiProvider: 'none',
+  aiOllamaUrl: 'http://localhost:11434',
+  aiOllamaModel: 'llama3',
+  aiClaudeApiKey: '',
+  aiGeminiApiKey: '',
+  syncFolderPath: '',
+  syncFolderEnabled: false
 }
 
 function settingsPath(): string {

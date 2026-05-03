@@ -78,6 +78,7 @@ export const translations = {
     settingsOpenFolder: 'Open data folder',
     settingsLanguageEn: 'English',
     settingsLanguageEs: 'Español',
+    settingsLaunchAtStartup: 'Launch Hoard on system startup',
 
     // Confirmations
     deleteVaultConfirm: (name: string) =>
@@ -259,6 +260,7 @@ export const translations = {
     settingsOpenFolder: 'Abrir carpeta de datos',
     settingsLanguageEn: 'English',
     settingsLanguageEs: 'Español',
+    settingsLaunchAtStartup: 'Iniciar Hoard al arrancar el sistema',
 
     // Confirmations
     deleteVaultConfirm: (name: string) =>

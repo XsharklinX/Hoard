@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link, FileText, Image, Code, X, Loader2, Plus } from 'lucide-react'
+import { Link, FileText, Image, Code, X, Loader2, Plus, Eye, Edit3, ChevronDown, AlertTriangle } from 'lucide-react'
+import type { Item } from '../types'
+import ReactMarkdown from 'react-markdown'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useStore } from '../store'
 import { useT } from '../i18n'
-import { toast } from '../lib/toast'
 import type { ItemType } from '../types'
 import { cn } from '../lib/utils'
 import { TagSelector } from './TagSelector'
+import { NOTE_TEMPLATES } from '../lib/templates'
 
 const CODE_LANGS = [
   'javascript', 'typescript', 'python', 'rust', 'go', 'java', 'cpp', 'c',
@@ -30,8 +33,10 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
   const [imagePath, setImagePath] = useState('')
   const [codeLang, setCodeLang] = useState('javascript')
   const [tagIds, setTagIds]     = useState<number[]>([])
-  const [fetching, setFetching] = useState(false)
-  const [saving, setSaving]     = useState(false)
+  const [fetching,   setFetching]   = useState(false)
+  const [saving,     setSaving]     = useState(false)
+  const [notePreview, setNotePreview] = useState(false)
+  const [duplicateItem, setDuplicateItem] = useState<Item | null>(null)
 
   const urlRef   = useRef<HTMLInputElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -40,18 +45,26 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
     if (open) {
       setType(initialType ?? settings.defaultItemType)
       setUrl(''); setTitle(''); setContent(''); setImagePath(''); setTagIds([])
+      setDuplicateItem(null)
       setTimeout(() => (type === 'link' ? urlRef : titleRef).current?.focus(), 50)
     }
   }, [open])
 
   const handleFetchMetadata = async () => {
     if (!url.trim()) return
+
+    // Inline duplicate check
+    const normalised = url.trim().toLowerCase().replace(/\/$/, '')
+    const dup = useStore.getState().items.find(
+      (i) => i.url?.toLowerCase().replace(/\/$/, '') === normalised
+    ) ?? null
+    setDuplicateItem(dup)
+
     setFetching(true)
     try {
       const meta = await window.api.util.fetchMetadata(url.trim())
       if (meta.title && !title)       setTitle(meta.title)
       if (meta.description && !content) setContent(meta.description)
-      // For YouTube (and any site returning a thumbnail), store it as image_path
       if (meta.thumbnailPath && !imagePath) setImagePath(meta.thumbnailPath)
     } finally {
       setFetching(false)
@@ -77,17 +90,7 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
   const handleSave = async () => {
     if (!canSave() || saving) return
 
-    // Duplicate URL check
-    if (type === 'link' && url.trim()) {
-      const normalised = url.trim().toLowerCase().replace(/\/$/, '')
-      const duplicate = useStore.getState().items.find(
-        (i) => i.url?.toLowerCase().replace(/\/$/, '') === normalised
-      )
-      if (duplicate) {
-        toast.info(t.duplicateUrlWarning)
-        // Don't block — let the user decide — just warn and continue
-      }
-    }
+    // Duplicate is shown inline — no toast needed
 
     setSaving(true)
     try {
@@ -159,24 +162,34 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
         <div className="flex flex-col gap-3 px-5 py-4 overflow-y-auto">
           {/* Link URL */}
           {type === 'link' && (
-            <div className="flex gap-2">
-              <input
-                ref={urlRef}
-                type="url"
-                placeholder={t.urlPlaceholder}
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onBlur={handleFetchMetadata}
-                className="input flex-1"
-              />
-              <button
-                onClick={handleFetchMetadata}
-                disabled={!url.trim() || fetching}
-                className="px-3 py-2 rounded-lg bg-card border border-border text-xs text-text-secondary hover:text-text-primary disabled:opacity-40 transition-colors"
-              >
-                {fetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : t.fetch}
-              </button>
-            </div>
+            <>
+              <div className="flex gap-2">
+                <input
+                  ref={urlRef}
+                  type="url"
+                  placeholder={t.urlPlaceholder}
+                  value={url}
+                  onChange={(e) => { setUrl(e.target.value); setDuplicateItem(null) }}
+                  onBlur={handleFetchMetadata}
+                  className="input flex-1"
+                />
+                <button
+                  onClick={handleFetchMetadata}
+                  disabled={!url.trim() || fetching}
+                  className="px-3 py-2 rounded-lg bg-card border border-border text-xs text-text-secondary hover:text-text-primary disabled:opacity-40 transition-colors"
+                >
+                  {fetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : t.fetch}
+                </button>
+              </div>
+              {duplicateItem && (
+                <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/25 text-xs text-amber-400">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    Already saved as <strong className="font-medium text-amber-300">{duplicateItem.title || duplicateItem.url}</strong>. You can still save a duplicate.
+                  </span>
+                </div>
+              )}
+            </>
           )}
 
           {/* Image picker */}
@@ -232,17 +245,85 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
 
           {/* Content / note / code */}
           {type !== 'image' && (
-            <textarea
-              placeholder={
-                type === 'note' ? t.writeNote :
-                type === 'code' ? t.codePlaceholder :
-                t.descriptionOptional
-              }
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              rows={type === 'note' || type === 'code' ? 7 : 3}
-              className={cn('input resize-none', (type === 'note' || type === 'code') && 'font-mono text-xs')}
-            />
+            type === 'note' ? (
+              <div className="flex flex-col gap-1.5">
+                {/* Note toolbar: Write/Preview + Templates */}
+                <div className="flex items-center gap-2">
+                  <div className="flex rounded-lg overflow-hidden border border-border text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setNotePreview(false)}
+                      className={cn('flex items-center gap-1 px-2.5 py-1 transition-colors',
+                        !notePreview ? 'bg-gold/15 text-gold' : 'bg-card text-text-secondary hover:text-text-primary'
+                      )}
+                    >
+                      <Edit3 className="w-3 h-3" />Write
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNotePreview(true)}
+                      className={cn('flex items-center gap-1 px-2.5 py-1 transition-colors',
+                        notePreview ? 'bg-gold/15 text-gold' : 'bg-card text-text-secondary hover:text-text-primary'
+                      )}
+                    >
+                      <Eye className="w-3 h-3" />Preview
+                    </button>
+                  </div>
+
+                  {/* Templates dropdown */}
+                  <DropdownMenu.Root>
+                    <DropdownMenu.Trigger asChild>
+                      <button type="button" className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-card border border-border text-text-secondary hover:text-text-primary transition-colors">
+                        Templates <ChevronDown className="w-3 h-3" />
+                      </button>
+                    </DropdownMenu.Trigger>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content
+                        align="start" sideOffset={4}
+                        className="z-[300] min-w-[180px] bg-surface border border-border rounded-xl shadow-2xl py-1.5 overflow-hidden"
+                      >
+                        {NOTE_TEMPLATES.map((tpl) => (
+                          <DropdownMenu.Item
+                            key={tpl.id}
+                            onSelect={() => { setContent(tpl.markdown); setNotePreview(false) }}
+                            className="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer outline-none text-text-secondary hover:bg-card hover:text-text-primary transition-colors"
+                          >
+                            <span>{tpl.icon}</span>
+                            {tpl.label}
+                          </DropdownMenu.Item>
+                        ))}
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu.Root>
+                </div>
+
+                {notePreview ? (
+                  <div className="min-h-[168px] max-h-64 overflow-y-auto rounded-lg border border-border bg-card/30 px-3 py-2.5 text-xs text-text-secondary leading-relaxed prose-xs">
+                    {content.trim() ? (
+                      <ReactMarkdown>{content}</ReactMarkdown>
+                    ) : (
+                      <p className="text-text-muted italic">Nothing to preview yet…</p>
+                    )}
+                  </div>
+                ) : (
+                  <textarea
+                    placeholder={t.writeNote}
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    rows={7}
+                    className="input resize-none font-mono text-xs"
+                  />
+                )}
+              </div>
+            ) : (
+              <textarea
+                placeholder={type === 'code' ? t.codePlaceholder : t.descriptionOptional}
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                rows={type === 'code' ? 7 : 3}
+                className={cn('input resize-none', type === 'code' && 'font-mono text-xs')}
+              />
+            )
           )}
 
           {/* Tags */}

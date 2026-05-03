@@ -2,6 +2,7 @@ import http from 'http'
 import { itemQueries, vaultQueries, folderQueries, tagQueries } from './db'
 import { BrowserWindow } from 'electron'
 import { fetchUrlMetadata } from './handlers'
+import { archiveWebPage } from './archive'
 
 const PORT = 43210
 
@@ -55,7 +56,7 @@ export function startLocalServer() {
       const allVaults = vaultQueries.list() as Array<{ id: number }>
       const qVaultId  = parseInt(parsedUrl.searchParams.get('vaultId') || '0')
       const vaultId   = (qVaultId && allVaults.find((v) => v.id === qVaultId)) ? qVaultId : allVaults[0]?.id ?? 1
-      const items     = itemQueries.list({ vaultId }) as Array<{ url: string | null }>
+      const items     = itemQueries.list({ vaultId }) as any[]
       const norm      = (u: string) => u.toLowerCase().replace(/\/$/, '')
       const exists    = url ? items.some((i) => i.url && norm(i.url) === norm(url)) : false
       res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -70,7 +71,7 @@ export function startLocalServer() {
       const qVaultId  = parseInt(parsedUrl.searchParams.get('vaultId') || '0')
       const vaultId   = (qVaultId && allVaults.find((v) => v.id === qVaultId)) ? qVaultId : allVaults[0]?.id ?? 1
       const limit     = Math.min(parseInt(parsedUrl.searchParams.get('limit') || '6'), 20)
-      const all       = itemQueries.list({ vaultId }) as Array<{ id: number; title: string | null; url: string | null; type: string }>
+      const all       = itemQueries.list({ vaultId }) as any[]
       const hits      = q
         ? all.filter((i) => (i.title || '').toLowerCase().includes(q) || (i.url || '').toLowerCase().includes(q)).slice(0, limit)
         : all.slice(0, limit)
@@ -180,7 +181,7 @@ export function startLocalServer() {
           notifyRenderer()
 
           // Throttled background enrichment
-          const inserted = (itemQueries.list({ vaultId }) as Array<{ id: number; url: string | null; title: string | null }>)
+          const inserted = (itemQueries.list({ vaultId }) as any[])
             .slice(-bookmarks.length).reverse()
           const queue = inserted.map((_, i) => i)
           async function runPool(n: number) {
@@ -228,7 +229,18 @@ export function startLocalServer() {
           const folderId  = payload.folderId ?? null
           const tagIds    = Array.isArray(payload.tagIds) ? payload.tagIds : []
 
-          if (payload.type === 'link' && payload.url) {
+          if (payload.type === 'note') {
+            itemQueries.create({
+              vaultId,
+              type:     'note',
+              title:    payload.title   || undefined,
+              content:  payload.content || undefined,
+              folderId: folderId || undefined,
+              tagIds:   tagIds.length ? tagIds : undefined,
+            })
+            notifyRenderer()
+
+          } else if (payload.type === 'link' && payload.url) {
             // ── Save immediately with what we have, never block on metadata ──
             const item = itemQueries.create({
               vaultId,
@@ -304,7 +316,6 @@ async function enrichLinkInBackground(itemId: number, url: string) {
       imagePath:   meta.thumbnailPath || undefined
     })
     // Archive page (non-critical)
-    const { archiveWebPage } = require('./archive')
     archiveWebPage(itemId, url).catch(console.error)
     // Notify again so the UI refreshes with the enriched data
     notifyRenderer()

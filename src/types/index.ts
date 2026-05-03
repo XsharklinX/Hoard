@@ -1,13 +1,27 @@
 export interface AppSettings {
   language: 'en' | 'es'
   showReadingTime: boolean
+  showFavicons: boolean
   defaultItemType: 'link' | 'note' | 'image' | 'code'
   compactView: boolean
+  minimizeToTray: boolean
   encryptionEnabled: boolean
   autoLockMinutes: number
   autoBackupEnabled: boolean
   autoBackupPath: string
   autoBackupIntervalDays: number
+  autoBackupLastRun: number
+  launchAtStartup: boolean
+  hasSeenWelcome: boolean
+  theme: 'dark' | 'light' | 'midnight'
+  viewMode: 'grid' | 'list'
+  aiProvider: 'none' | 'ollama' | 'claude' | 'gemini'
+  aiOllamaUrl: string
+  aiOllamaModel: string
+  aiClaudeApiKey: string
+  aiGeminiApiKey: string
+  syncFolderPath: string
+  syncFolderEnabled: boolean
 }
 
 export interface Vault {
@@ -133,6 +147,7 @@ declare global {
         save: (patch: Partial<AppSettings>) => Promise<AppSettings>
         openDataFolder: () => Promise<void>
         getDataPath: () => Promise<string>
+        chooseBackupDir: () => Promise<string | null>
       }
       util: {
         fetchMetadata: (url: string) => Promise<UrlMetadata>
@@ -154,8 +169,27 @@ declare global {
         changePassword: (oldPw: string, newPw: string) => Promise<{ success: boolean; error?: string }>
       }
       backup: {
-        export: () => Promise<{ success?: boolean; cancelled?: boolean; path?: string }>
-        import: () => Promise<{ success?: boolean; cancelled?: boolean }>
+        export:     () => Promise<{ success?: boolean; cancelled?: boolean; path?: string }>
+        import:     () => Promise<{ success?: boolean; cancelled?: boolean }>
+        exportHtml: () => Promise<{ success?: boolean; cancelled?: boolean; path?: string }>
+        exportJson: (folderPath: string) => Promise<{ success?: boolean; count?: number; error?: string }>
+      }
+      app: {
+        getVersion:          () => Promise<string>
+        checkUpdates:        () => Promise<{ error?: string }>
+        installUpdate:       () => Promise<void>
+        openExtensionFolder: () => Promise<void>
+        closeWindow:         () => Promise<void>
+      }
+      ai: {
+        summarize: (params: {
+          text: string
+          provider: string
+          ollamaUrl?: string
+          ollamaModel?: string
+          claudeApiKey?: string
+          geminiApiKey?: string
+        }) => Promise<{ summary?: string; error?: string }>
       }
       on:  (channel: string, cb: (...args: unknown[]) => void) => ((...args: unknown[]) => void)
       off: (channel: string, handler: (...args: unknown[]) => void) => void

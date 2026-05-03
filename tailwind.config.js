@@ -4,19 +4,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        base: '#0a0a0a',
-        surface: '#141414',
-        card: '#1c1c1c',
-        border: '#252525',
+        base:    'rgb(var(--c-base)    / <alpha-value>)',
+        surface: 'rgb(var(--c-surface) / <alpha-value>)',
+        card:    'rgb(var(--c-card)    / <alpha-value>)',
+        border:  'rgb(var(--c-border)  / <alpha-value>)',
         gold: {
-          DEFAULT: '#c9952a',
-          light: '#e0aa42',
-          dim: '#8a6318'
+          DEFAULT: 'rgb(var(--c-gold)       / <alpha-value>)',
+          light:   'rgb(var(--c-gold-light)  / <alpha-value>)',
+          dim:     'rgb(var(--c-gold-dim)    / <alpha-value>)',
         },
         text: {
-          primary: '#e4e4e4',
-          secondary: '#888888',
-          muted: '#555555'
+          primary:   'rgb(var(--c-text-primary)   / <alpha-value>)',
+          secondary: 'rgb(var(--c-text-secondary) / <alpha-value>)',
+          muted:     'rgb(var(--c-text-muted)     / <alpha-value>)',
         }
       },
       fontFamily: {

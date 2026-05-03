@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { X, ExternalLink, Pin, Trash2, Clock, Copy, Check, Link as LinkIcon, Archive, Loader2, AlertCircle, Pencil, Files, Download, BookOpen, Circle } from 'lucide-react'
+import { X, ExternalLink, Pin, Trash2, Clock, Copy, Check, Link as LinkIcon, Archive, Loader2, AlertCircle, Pencil, Files, Download, BookOpen, Circle, Sparkles, ChevronDown, ChevronUp } from 'lucide-react'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -64,13 +64,17 @@ interface PreviewPanelProps {
 }
 
 export function PreviewPanel({ onEdit }: PreviewPanelProps) {
-  const { selectedItem, pinItem, deleteItem, duplicateItem, selectItem, updateItem, settings, setReadStatus } = useStore()
+  const { selectedItem, pinItem, deleteItem, duplicateItem, selectItem, selectType, updateItem, settings, setReadStatus } = useStore()
   const t = useT()
   const [copied, setCopied]           = useState(false)
   const [faviconError, setFaviconError] = useState(false)
   const [imgError,    setImgError]    = useState(false)
   const [isEditing, setIsEditing]     = useState(false)
   const [editContent, setEditContent] = useState('')
+  const [aiSummary,   setAiSummary]   = useState<string | null>(null)
+  const [aiLoading,   setAiLoading]   = useState(false)
+  const [aiError,     setAiError]     = useState<string | null>(null)
+  const [aiExpanded,  setAiExpanded]  = useState(true)
 
   if (!selectedItem) return null
   const item = selectedItem
@@ -79,7 +83,37 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
     setFaviconError(false)
     setImgError(false)
     setIsEditing(false)
+    setAiSummary(null)
+    setAiError(null)
   }, [item.id])
+
+  const handleSummarize = async () => {
+    if (aiLoading) return
+    setAiLoading(true)
+    setAiError(null)
+    const text = item.content ?? item.title ?? item.url ?? ''
+    const result = await window.api.ai.summarize({
+      text,
+      provider:      settings.aiProvider,
+      ollamaUrl:     settings.aiOllamaUrl,
+      ollamaModel:   settings.aiOllamaModel,
+      claudeApiKey:  settings.aiClaudeApiKey,
+      geminiApiKey:  settings.aiGeminiApiKey
+    })
+    setAiLoading(false)
+    if (result.error) setAiError(result.error)
+    else { setAiSummary(result.summary ?? ''); setAiExpanded(true) }
+  }
+
+  const handleMentionClick = async (id: number) => {
+    let target = useStore.getState().items.find(i => i.id === id)
+    if (!target) {
+      await selectType('all')
+      target = useStore.getState().items.find(i => i.id === id)
+    }
+    if (target) selectItem(target)
+    else toast.info('Item not found in current vault')
+  }
 
   const handleSaveEdit = async (content: string) => {
     if (content !== item.content) await updateItem(item.id, { content })
@@ -121,6 +155,20 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
               <Circle className={cn('w-3.5 h-3.5', item.read_status === 'unread' && 'fill-sky-400/40')} />
             </button>
           </Tip>
+          {/* AI summarize button */}
+          {settings.aiProvider !== 'none' && (
+            <Tip label="Summarize with AI">
+              <button
+                onClick={handleSummarize}
+                disabled={aiLoading}
+                className="p-1.5 rounded-lg text-text-muted hover:bg-card hover:text-gold transition-colors disabled:opacity-50"
+              >
+                {aiLoading
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Sparkles className="w-3.5 h-3.5" />}
+              </button>
+            </Tip>
+          )}
           {/* Reader mode button — only for archived links */}
           {item.type === 'link' && item.archive_status === 'done' && item.archive_path && (
             <Tip label="Open in Reader">
@@ -218,6 +266,26 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
           </div>
         )}
 
+        {/* AI summary */}
+        {(aiSummary || aiError) && (
+          <div className="flex flex-col gap-1.5 rounded-xl border border-gold/20 bg-gold/5 p-3">
+            <button
+              onClick={() => setAiExpanded(v => !v)}
+              className="flex items-center justify-between gap-2 text-[10px] text-gold font-semibold uppercase tracking-widest"
+            >
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3" />AI Summary
+              </span>
+              {aiExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+            {aiExpanded && (
+              aiError
+                ? <p className="text-xs text-red-400">{aiError}</p>
+                : <p className="text-xs text-text-secondary leading-relaxed">{aiSummary}</p>
+            )}
+          </div>
+        )}
+
         {/* Archive status badge */}
         {item.type === 'link' && item.archive_status && (
           <ArchiveBadge status={item.archive_status} />
@@ -246,7 +314,7 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
               />
             ) : (
               <div className="cursor-text hover:bg-white/5 p-1 -m-1 rounded transition-colors" title="Double click to edit">
-                <NoteEditor content={item.content ?? ''} readOnly />
+                <NoteEditor content={item.content ?? ''} readOnly onMentionClick={handleMentionClick} />
               </div>
             )}
           </div>

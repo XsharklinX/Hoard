@@ -14,6 +14,7 @@ import { MoveItemModal } from './components/MoveItemModal'
 import { EditItemModal } from './components/EditItemModal'
 import { CommandPalette } from './components/CommandPalette'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import { WelcomeScreen } from './components/WelcomeScreen'
 import { useStore } from './store'
 import type { Vault, Item } from './types'
 
@@ -46,7 +47,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 
 export default function App() {
   const {
-    loadVaults, selectedItem, checkSecurity, appLocked, unlock, lockApp, settings,
+    loadVaults, selectedItem, checkSecurity, appLocked, unlock, lockApp, settings, updateSettings,
     updateArchiveStatus, selectFolder, selectTag, selectType, loadCounts, reloadFolders,
     selectedFolder, selectedTag, selectedType
   } = useStore()
@@ -61,6 +62,14 @@ export default function App() {
   const [editingItem,  setEditingItem]  = useState<Item | null>(null)
   const [editVault,    setEditVault]    = useState<Vault | null>(null)
   const [appReady,     setAppReady]     = useState(false)
+  const [showWelcome,  setShowWelcome]  = useState(false)
+
+  // ── Theme ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const theme = settings.theme ?? 'dark'
+    document.documentElement.classList.remove('theme-light', 'theme-midnight')
+    if (theme !== 'dark') document.documentElement.classList.add(`theme-${theme}`)
+  }, [settings.theme])
 
   // ── Startup ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -75,6 +84,9 @@ export default function App() {
         console.error('Failed to initialize app:', err)
       } finally {
         setAppReady(true)
+        // Show welcome to first-time users (check after settings are loaded)
+        const s = useStore.getState().settings
+        if (!s.hasSeenWelcome) setShowWelcome(true)
       }
     }
     init()
@@ -147,6 +159,7 @@ export default function App() {
   if (appLocked) return <LockScreen onUnlock={handleUnlock} />
 
   return (
+    <>
     <Tooltip.Provider delayDuration={600}>
     <ErrorBoundary>
     <div className="flex h-full w-full overflow-hidden">
@@ -184,5 +197,13 @@ export default function App() {
     </div>
     </ErrorBoundary>
     </Tooltip.Provider>
+
+    {showWelcome && (
+      <WelcomeScreen onComplete={async () => {
+        await updateSettings({ hasSeenWelcome: true })
+        setShowWelcome(false)
+      }} />
+    )}
+    </>
   )
 }

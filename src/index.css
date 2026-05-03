@@ -2,6 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Theme variables ─────────────────────────────────────────────────────── */
+:root {
+  --c-base:           10 10 10;
+  --c-surface:        20 20 20;
+  --c-card:           28 28 28;
+  --c-border:         37 37 37;
+  --c-gold:           201 149 42;
+  --c-gold-light:     224 170 66;
+  --c-gold-dim:       138 99 24;
+  --c-text-primary:   228 228 228;
+  --c-text-secondary: 136 136 136;
+  --c-text-muted:     85 85 85;
+}
+
+.theme-light {
+  --c-base:           248 248 248;
+  --c-surface:        255 255 255;
+  --c-card:           241 241 241;
+  --c-border:         218 218 218;
+  --c-gold:           180 115 18;
+  --c-gold-light:     200 135 28;
+  --c-gold-dim:       140 88 12;
+  --c-text-primary:   18 18 18;
+  --c-text-secondary: 88 88 88;
+  --c-text-muted:     148 148 148;
+}
+
+.theme-midnight {
+  --c-base:           7 7 20;
+  --c-surface:        12 12 32;
+  --c-card:           18 18 46;
+  --c-border:         32 34 68;
+  --c-gold:           201 149 42;
+  --c-gold-light:     224 170 66;
+  --c-gold-dim:       138 99 24;
+  --c-text-primary:   218 222 248;
+  --c-text-secondary: 128 134 172;
+  --c-text-muted:     70 76 112;
+}
+
 @layer base {
   * {
     box-sizing: border-box;

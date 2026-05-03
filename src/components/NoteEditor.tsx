@@ -19,9 +19,10 @@ interface NoteEditorProps {
   onChange?: (html: string) => void
   onBlur?: (html: string) => void
   placeholder?: string
+  onMentionClick?: (id: number) => void
 }
 
-export function NoteEditor({ content, readOnly = false, onChange, onBlur, placeholder }: NoteEditorProps) {
+export function NoteEditor({ content, readOnly = false, onChange, onBlur, placeholder, onMentionClick }: NoteEditorProps) {
   const { selectedVault } = useStore()
   const vaultId = selectedVault?.id
   const itemLinkExt = useMemo(() => createItemLinkExtension(vaultId), [vaultId])
@@ -68,11 +69,22 @@ export function NoteEditor({ content, readOnly = false, onChange, onBlur, placeh
   if (!editor) return null
 
   if (readOnly) {
+    const handleMentionClick = onMentionClick
+      ? (e: React.MouseEvent<HTMLDivElement>) => {
+          const target = (e.target as Element).closest('[data-type="mention"]')
+          if (!target) return
+          const id = parseInt(target.getAttribute('data-id') ?? '', 10)
+          if (id) onMentionClick(id)
+        }
+      : undefined
+
     return (
-      <EditorContent
-        editor={editor}
-        className="prose prose-invert prose-xs max-w-none text-text-secondary text-xs leading-relaxed"
-      />
+      <div onClick={handleMentionClick}>
+        <EditorContent
+          editor={editor}
+          className="prose prose-invert prose-xs max-w-none text-text-secondary text-xs leading-relaxed"
+        />
+      </div>
     )
   }
 

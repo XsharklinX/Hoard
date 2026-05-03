@@ -1,11 +1,20 @@
 import { app, BrowserWindow, nativeTheme, protocol, net, Tray, Menu, nativeImage } from 'electron'
-import { join } from 'path'
-import { autoUpdater } from 'electron-updater'
+import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
+import fs from 'fs'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+import updaterPkg from 'electron-updater'
+const { autoUpdater } = updaterPkg
 import { initDb, saveDb } from './db'
 import { registerHandlers, setNeedsPassword } from './handlers'
 import { startLocalServer } from './server'
 import { setMainWindow, sendToRenderer } from './window'
 import { shutdownOcrWorker } from './ocr'
+import { loadSettings, saveSettings } from './settings'
+import { exportBackup } from './backup'
+import { createCaptureWindow, registerCaptureShortcut, unregisterCaptureShortcut } from './capture'
 import icon from '../../resources/icon.png?asset'
 
 protocol.registerSchemesAsPrivileged([
@@ -65,7 +74,7 @@ function createWindow(): void {
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     frame: process.platform !== 'darwin',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false,
       contextIsolation: true
     }
@@ -74,16 +83,21 @@ function createWindow(): void {
   setMainWindow(mainWindow)
   mainWindow.on('ready-to-show', () => mainWindow?.show())
 
-  // ── Minimize to tray instead of closing ──────────────────────────────────────
+  // ── Close / minimize-to-tray behaviour ───────────────────────────────────────
   mainWindow.on('close', (e) => {
-    e.preventDefault()           // Don't actually close
-    mainWindow?.hide()           // Just hide the window
-    // Show a one-time balloon hint on Windows
-    if (process.platform === 'win32') {
-      tray?.displayBalloon({
-        title: 'Hoard is still running',
-        content: 'The extension keeps working in the background. Double-click the tray icon to reopen.'
-      })
+    const { minimizeToTray } = loadSettings()
+    if (minimizeToTray ?? true) {
+      e.preventDefault()
+      mainWindow?.hide()
+      if (process.platform === 'win32') {
+        tray?.displayBalloon({
+          title: 'Hoard is still running',
+          content: 'The extension keeps working in the background. Double-click the tray icon to reopen.'
+        })
+      }
+    } else {
+      tray?.destroy()
+      app.exit(0)
     }
   })
 
@@ -102,6 +116,33 @@ function createWindow(): void {
   }
 }
 
+// ── Startup setting sync ──────────────────────────────────────────────────────
+function syncStartupSetting(): void {
+  if (!app.isPackaged) return
+  const { launchAtStartup } = loadSettings()
+  app.setLoginItemSettings({ openAtLogin: launchAtStartup })
+}
+
+// ── Auto-backup ───────────────────────────────────────────────────────────────
+function runAutoBackupIfNeeded(): void {
+  const settings = loadSettings()
+  if (!settings.autoBackupEnabled || !settings.autoBackupPath) return
+  if (!fs.existsSync(settings.autoBackupPath)) return
+
+  const intervalMs = (settings.autoBackupIntervalDays || 7) * 24 * 60 * 60 * 1000
+  if (Date.now() - (settings.autoBackupLastRun || 0) < intervalMs) return
+
+  const date    = new Date().toISOString().slice(0, 10)
+  const destPath = `${settings.autoBackupPath}/hoard-auto-${date}.hoard`
+  try {
+    exportBackup(destPath)
+    saveSettings({ autoBackupLastRun: Date.now() })
+    console.log('[auto-backup] saved to', destPath)
+  } catch (err) {
+    console.error('[auto-backup] failed:', err)
+  }
+}
+
 // ── Auto-updater ──────────────────────────────────────────────────────────────
 function setupAutoUpdater(): void {
   if (!app.isPackaged) return   // only active in production builds
@@ -113,12 +154,17 @@ function setupAutoUpdater(): void {
     sendToRenderer('updater:available', { version: info.version })
   })
 
+  autoUpdater.on('update-not-available', () => {
+    sendToRenderer('updater:up-to-date', {})
+  })
+
   autoUpdater.on('update-downloaded', (info) => {
     sendToRenderer('updater:downloaded', { version: info.version })
   })
 
   autoUpdater.on('error', (err) => {
     console.error('[updater]', err.message)
+    sendToRenderer('updater:error', { message: err.message })
   })
 
   // Check on startup, then every 4 hours
@@ -142,7 +188,13 @@ app.whenReady().then(async () => {
   startLocalServer()
   createTray()
   createWindow()
+  createCaptureWindow()
+  registerCaptureShortcut()
   setupAutoUpdater()
+  syncStartupSetting()
+  runAutoBackupIfNeeded()
+  // Re-check auto-backup every 12 hours while the app is running
+  setInterval(runAutoBackupIfNeeded, 12 * 60 * 60 * 1000)
 
   app.on('activate', () => {
     if (mainWindow) {
@@ -155,6 +207,7 @@ app.whenReady().then(async () => {
 
 // Save DB before quitting (handles force-quit / system shutdown)
 app.on('before-quit', () => {
+  unregisterCaptureShortcut()
   try { saveDb() } catch { /* ignore */ }
   shutdownOcrWorker().catch(() => {})
 })

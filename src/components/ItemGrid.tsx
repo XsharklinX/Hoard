@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Search, Plus, X, Trash2, MoveRight, CheckSquare, Square, ArrowUpDown, CalendarDays, Download, Tag } from 'lucide-react'
+import { Search, Plus, X, Trash2, MoveRight, CheckSquare, Square, ArrowUpDown, CalendarDays, Download, Tag, LayoutGrid, List } from 'lucide-react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Popover from '@radix-ui/react-popover'
 import * as Tooltip from '@radix-ui/react-tooltip'
@@ -10,6 +10,7 @@ import { confirm } from '../lib/confirm'
 import { toast } from '../lib/toast'
 import { cn } from '../lib/utils'
 import { ItemCard } from './ItemCard'
+import { ItemRow } from './ItemRow'
 
 interface ItemGridProps {
   onAddItem:   () => void
@@ -44,7 +45,7 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
   const {
     items, searchQuery, setSearch, setSort, sortBy,
     isLoading, selectedVault, selectedFolder,
-    selectedTag, settings, selectedIds, selectAll, clearSelection,
+    selectedTag, settings, updateSettings, selectedIds, selectAll, clearSelection,
     deleteSelected, selectedType, selectedItem, selectItem, tags
   } = useStore()
   const t = useT()
@@ -320,6 +321,25 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
             )}
           </div>
 
+          {/* View mode toggle */}
+          <Tooltip.Root>
+            <Tooltip.Trigger asChild>
+              <button
+                onClick={() => updateSettings({ viewMode: settings.viewMode === 'list' ? 'grid' : 'list' })}
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs border bg-card border-border text-text-muted hover:text-text-primary hover:border-border transition-colors"
+              >
+                {settings.viewMode === 'list'
+                  ? <LayoutGrid className="w-3.5 h-3.5" />
+                  : <List className="w-3.5 h-3.5" />}
+              </button>
+            </Tooltip.Trigger>
+            <Tooltip.Portal>
+              <Tooltip.Content side="bottom" sideOffset={6} className="z-[500] px-2 py-1 rounded-md text-xs bg-card border border-border text-text-primary shadow-lg">
+                {settings.viewMode === 'list' ? 'Grid view' : 'List view'}
+              </Tooltip.Content>
+            </Tooltip.Portal>
+          </Tooltip.Root>
+
           <Tooltip.Root>
             <Tooltip.Trigger asChild>
               <button
@@ -427,33 +447,76 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
           </div>
         )}
 
-        {/* Grid */}
-        <div ref={scrollParentRef} className="flex-1 overflow-y-auto p-6">
-          {isLoading ? (
-            <SkeletonGrid compact={settings.compactView} />
-          ) : filteredItems.length === 0 ? (
-            <EmptyState hasSearch={localSearch.length > 0} onAdd={onAddItem} />
-          ) : (
-            <Masonry
-              breakpointCols={{ default: colCount, 1400: colCount > 4 ? 4 : colCount, 1100: 3, 700: 2, 500: 1 }}
-              className="flex w-auto gap-4"
-              columnClassName="bg-clip-padding flex flex-col gap-4"
-            >
-              {filteredItems.map((item, idx) => (
-                <ItemCard
-                  key={item.id}
-                  item={item}
-                  compact={settings.compactView}
-                  focused={focusedIdx === idx}
-                  onMove={onMoveItems}
-                  onEdit={() => onEditItem(item)}
-                />
-              ))}
-            </Masonry>
-          )}
-        </div>
+        {/* Content */}
+        {settings.viewMode === 'list' ? (
+          <div ref={scrollParentRef} className="flex-1 overflow-y-auto">
+            {isLoading ? (
+              <SkeletonList />
+            ) : filteredItems.length === 0 ? (
+              <div className="p-6"><EmptyState hasSearch={localSearch.length > 0} onAdd={onAddItem} /></div>
+            ) : (
+              <div className="flex flex-col">
+                {filteredItems.map((item) => (
+                  <ItemRow
+                    key={item.id}
+                    item={item}
+                    onMove={onMoveItems}
+                    onEdit={() => onEditItem(item)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div ref={scrollParentRef} className="flex-1 overflow-y-auto p-6">
+            {isLoading ? (
+              <SkeletonGrid compact={settings.compactView} />
+            ) : filteredItems.length === 0 ? (
+              <EmptyState hasSearch={localSearch.length > 0} onAdd={onAddItem} />
+            ) : (
+              <Masonry
+                breakpointCols={{ default: colCount, 1400: colCount > 4 ? 4 : colCount, 1100: 3, 700: 2, 500: 1 }}
+                className="flex w-auto gap-4"
+                columnClassName="bg-clip-padding flex flex-col gap-4"
+              >
+                {filteredItems.map((item, idx) => (
+                  <ItemCard
+                    key={item.id}
+                    item={item}
+                    compact={settings.compactView}
+                    focused={focusedIdx === idx}
+                    onMove={onMoveItems}
+                    onEdit={() => onEditItem(item)}
+                  />
+                ))}
+              </Masonry>
+            )}
+          </div>
+        )}
       </div>
     </Tooltip.Provider>
+  )
+}
+
+// ── Skeleton list ─────────────────────────────────────────────────────────────
+function SkeletonList() {
+  return (
+    <div className="flex flex-col">
+      {Array.from({ length: 16 }).map((_, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-3 px-4 py-2.5 border-b border-border/40 animate-pulse"
+          style={{ animationDelay: `${i * 30}ms` }}
+        >
+          <div className="w-5 h-5 rounded-md bg-border/50 shrink-0" />
+          <div className="flex-1 flex flex-col gap-1.5">
+            <div className="h-2.5 rounded-full bg-border/50 w-48" />
+            <div className="h-2 rounded-full bg-border/30 w-28" />
+          </div>
+          <div className="w-14 h-2 rounded-full bg-border/30 shrink-0" />
+        </div>
+      ))}
+    </div>
   )
 }
 

@@ -1,6 +1,7 @@
 {
   "name": "hoard",
   "version": "0.1.0",
+  "type": "module",
   "description": "Your personal digital hoard — links, notes and images. All yours, all local.",
   "main": "out/main/index.js",
   "author": "David Bonilla",
@@ -9,8 +10,10 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "package": "npm run build && electron-builder",
-
+    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",
+    "posttest": "electron-rebuild -f -w better-sqlite3",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },
@@ -37,12 +40,14 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.7.2",
     "@radix-ui/react-context-menu": "^2.2.16",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@types/adm-zip": "^0.5.8",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20.11.5",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",

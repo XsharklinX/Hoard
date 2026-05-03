@@ -85,13 +85,27 @@ interface HoardStore {
 const DEFAULT_SETTINGS: AppSettings = {
   language: 'en',
   showReadingTime: true,
+  showFavicons: true,
   defaultItemType: 'link',
   compactView: false,
+  minimizeToTray: true,
   encryptionEnabled: false,
   autoLockMinutes: 0,
   autoBackupEnabled: false,
   autoBackupPath: '',
-  autoBackupIntervalDays: 7
+  autoBackupIntervalDays: 7,
+  autoBackupLastRun: 0,
+  launchAtStartup: false,
+  hasSeenWelcome: false,
+  theme: 'dark',
+  viewMode: 'grid',
+  aiProvider: 'none',
+  aiOllamaUrl: 'http://localhost:11434',
+  aiOllamaModel: 'llama3',
+  aiClaudeApiKey: '',
+  aiGeminiApiKey: '',
+  syncFolderPath: '',
+  syncFolderEnabled: false
 }
 
 const DEFAULT_SECURITY: SecurityStatus = { locked: false, encryptionEnabled: false, hasEncryptedDb: false }

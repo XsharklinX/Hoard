@@ -4,11 +4,16 @@ import fs from 'fs'
 import https from 'https'
 import http from 'http'
 import { URL } from 'url'
+import updaterPkg from 'electron-updater'
+const { autoUpdater } = updaterPkg
 import { vaultQueries, folderQueries, itemQueries, tagQueries, getImagesDir, CreateItemData,
          initDb, enableEncryption, disableEncryption, verifyPassword, hasEncryptedDb, isEncryptionEnabled } from './db'
 import { loadSettings, saveSettings } from './settings'
 import { sendToRenderer } from './window'
 import { exportBackup, importBackup } from './backup'
+import { processImageOcr } from './ocr'
+import { archiveWebPage } from './archive'
+import Jimp from 'jimp'
 
 let _needsPassword = false
 export function setNeedsPassword(v: boolean): void { _needsPassword = v }
@@ -32,11 +37,9 @@ export function registerHandlers(): void {
   ipcMain.handle('item:create', (_e, data: CreateItemData) => {
     const item = itemQueries.create(data)
     if (data.type === 'image' && data.imagePath) {
-      const { processImageOcr } = require('./ocr')
       processImageOcr(item.id, data.imagePath)
     } else if (data.type === 'link' && data.url) {
       // Archive runs in background — no await
-      const { archiveWebPage } = require('./archive')
       archiveWebPage(item.id, data.url).catch(console.error)
     }
     return item
@@ -44,7 +47,7 @@ export function registerHandlers(): void {
   ipcMain.handle('item:update',      (_e, id: number, data: Partial<CreateItemData>) => itemQueries.update(id, data))
   ipcMain.handle('item:pin',         (_e, id: number, pinned: boolean)               => { itemQueries.pin(id, pinned) })
   ipcMain.handle('item:delete',      (_e, id: number)                                => { itemQueries.delete(id) })
-  ipcMain.handle('item:set-read',    (_e, id: number, status: 'unread' | 'read')     => { itemQueries.update(id, { readStatus: status }) })
+  ipcMain.handle('item:set-read',    (_e, id: number, status: 'unread' | 'read')     => itemQueries.update(id, { readStatus: status }))
   ipcMain.handle('item:search-items',(_e, vaultId: number, q: string)                => itemQueries.searchForLink(vaultId, q))
   ipcMain.handle('item:tag-selected',(_e, ids: number[], tagIds: number[])           => {
     for (const id of ids) itemQueries.update(id, { tagIds })
@@ -60,10 +63,26 @@ export function registerHandlers(): void {
   ipcMain.handle('tag:set-item',     (_e, itemId: number, tagIds: number[])          => { tagQueries.setItemTags(itemId, tagIds) })
 
   // ── Settings ─────────────────────────────────────────────────────────────────
-  ipcMain.handle('settings:load', ()                              => loadSettings())
-  ipcMain.handle('settings:save', (_e, patch: object)            => saveSettings(patch as Parameters<typeof saveSettings>[0]))
-  ipcMain.handle('settings:get-data-path',     ()  => app.getPath('userData'))
-  ipcMain.handle('settings:open-data-folder',  ()  => { shell.openPath(app.getPath('userData')) })
+  ipcMain.handle('settings:load', () => loadSettings())
+  ipcMain.handle('settings:save', (_e, patch: any) => {
+    const updated = saveSettings(patch)
+    // Only register with OS login items in packaged builds — in dev the exe path
+    // would point to the Electron binary, not the installed app.
+    if (patch.launchAtStartup !== undefined && app.isPackaged) {
+      app.setLoginItemSettings({ openAtLogin: !!patch.launchAtStartup })
+    }
+    return updated
+  })
+  ipcMain.handle('settings:get-data-path',    () => app.getPath('userData'))
+  ipcMain.handle('settings:open-data-folder', () => { shell.openPath(app.getPath('userData')) })
+  ipcMain.handle('settings:choose-backup-dir', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose auto-backup folder',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (result.canceled || !result.filePaths.length) return null
+    return result.filePaths[0]
+  })
 
   // ── Utilities ────────────────────────────────────────────────────────────────
   ipcMain.handle('util:fetch-metadata', async (_e, url: string) => fetchUrlMetadata(url))
@@ -73,8 +92,6 @@ export function registerHandlers(): void {
     const destPath = path.join(imagesDir, `${Date.now()}.jpg`) // Force jpg for compression
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const Jimp = require('jimp')
       const img = await Jimp.read(srcPath)
       
       // If image is larger than 1920x1080, scale it down proportionally
@@ -257,6 +274,192 @@ export function registerHandlers(): void {
     return { success: true }
   })
 
+  // ── App info & updater ───────────────────────────────────────────────────────
+  // ── Vault HTML/JSON export ─────────────────────────────────────────────────
+  ipcMain.handle('backup:export-html', async () => {
+    const result = await dialog.showSaveDialog({
+      title: 'Export vault as HTML',
+      defaultPath: `hoard-vault-${new Date().toISOString().slice(0, 10)}.html`,
+      filters: [{ name: 'HTML', extensions: ['html'] }]
+    })
+    if (result.canceled || !result.filePath) return { cancelled: true }
+    try {
+      const vaults = vaultQueries.list() as Array<{ id: number; name: string; color: string }>
+      const allItems: unknown[] = []
+      for (const v of vaults) {
+        const items = itemQueries.list({ vaultId: v.id }) as unknown[]
+        allItems.push(...(items as Array<Record<string, unknown>>).map(i => ({ ...i, vaultName: v.name })))
+      }
+      const html = generateVaultHtml(allItems as VaultHtmlItem[], vaults)
+      fs.writeFileSync(result.filePath, html, 'utf-8')
+      return { success: true, path: result.filePath }
+    } catch (err: unknown) { return { error: (err as Error).message } }
+  })
+
+  ipcMain.handle('backup:export-json', async (_e, folderPath: string) => {
+    try {
+      if (!fs.existsSync(folderPath)) return { error: 'Folder does not exist' }
+      const vaults = vaultQueries.list() as Array<{ id: number; name: string }>
+      let count = 0
+      for (const v of vaults) {
+        const items = itemQueries.list({ vaultId: v.id })
+        const folders = folderQueries.list(v.id)
+        const tags = tagQueries.list(v.id)
+        const data = { vault: v, items, folders, tags, exportedAt: new Date().toISOString() }
+        const safeName = v.name.replace(/[^a-z0-9]/gi, '-').toLowerCase()
+        fs.writeFileSync(path.join(folderPath, `hoard-${safeName}.json`), JSON.stringify(data, null, 2), 'utf-8')
+        count += (items as unknown[]).length
+      }
+      return { success: true, count }
+    } catch (err: unknown) { return { error: (err as Error).message } }
+  })
+
+  ipcMain.handle('app:get-version', () => app.getVersion())
+
+  ipcMain.handle('app:check-updates', async () => {
+    if (!app.isPackaged) return { error: 'dev' }
+    try {
+      await autoUpdater.checkForUpdates()
+      return {}
+    } catch (err: any) {
+      return { error: err.message ?? 'failed' }
+    }
+  })
+
+  ipcMain.handle('app:install-update', () => {
+    autoUpdater.quitAndInstall()
+  })
+
+  ipcMain.handle('app:close-window', () => {
+    const win = BrowserWindow.getFocusedWindow()
+    win?.close()
+  })
+
+  ipcMain.handle('app:open-extension-folder', () => {
+    const extPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'extension')
+      : path.join(app.getAppPath(), 'extension')
+    shell.openPath(extPath)
+  })
+
+  // ── AI summarize ─────────────────────────────────────────────────────────────
+  ipcMain.handle('ai:summarize', async (_e, params: {
+    text: string
+    provider: string
+    ollamaUrl?: string
+    ollamaModel?: string
+    claudeApiKey?: string
+    geminiApiKey?: string
+  }) => {
+    const { text, provider, ollamaUrl = 'http://localhost:11434', ollamaModel = 'llama3', claudeApiKey = '' } = params
+    const prompt = `Summarize the following content in 2-3 concise sentences:\n\n${text.slice(0, 4000)}`
+
+    if (provider === 'ollama') {
+      return await new Promise<{ summary?: string; error?: string }>((resolve) => {
+        let parsedUrl: URL
+        try { parsedUrl = new URL(`${ollamaUrl}/api/generate`) }
+        catch { resolve({ error: 'Invalid Ollama URL' }); return }
+
+        const body = JSON.stringify({ model: ollamaModel, prompt, stream: false })
+        const options = {
+          hostname: parsedUrl.hostname,
+          port: parseInt(parsedUrl.port || '11434'),
+          path: parsedUrl.pathname,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+        }
+        const req = http.request(options, (res) => {
+          let data = ''
+          res.on('data', (c: Buffer) => { data += c.toString() })
+          res.on('end', () => {
+            try { resolve({ summary: JSON.parse(data).response }) }
+            catch { resolve({ error: 'Invalid response from Ollama' }) }
+          })
+        })
+        req.on('error', (err) => resolve({ error: err.message }))
+        req.setTimeout(30000, () => { req.destroy(); resolve({ error: 'Timeout — is Ollama running?' }) })
+        req.write(body)
+        req.end()
+      })
+    }
+
+    if (provider === 'gemini') {
+      const geminiApiKey = params.geminiApiKey ?? ''
+      if (!geminiApiKey) return { error: 'No Gemini API key configured' }
+      return await new Promise<{ summary?: string; error?: string }>((resolve) => {
+        const body = JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+        const apiPath = `/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(geminiApiKey)}`
+        const options = {
+          hostname: 'generativelanguage.googleapis.com',
+          path: apiPath,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+        }
+        const req = https.request(options, (res) => {
+          let data = ''
+          res.on('data', (c: Buffer) => { data += c.toString() })
+          res.on('end', () => {
+            try {
+              const json = JSON.parse(data)
+              if (json.error) {
+                resolve({ error: `Gemini: ${json.error.message ?? json.error.status ?? 'Unknown error'}` })
+                return
+              }
+              const text = json.candidates?.[0]?.content?.parts?.[0]?.text
+              if (!text) resolve({ error: 'Gemini returned no content — check your API key and quota' })
+              else resolve({ summary: text })
+            } catch { resolve({ error: 'Invalid response from Gemini' }) }
+          })
+        })
+        req.on('error', (err) => resolve({ error: err.message }))
+        req.setTimeout(30000, () => { req.destroy(); resolve({ error: 'Timeout' }) })
+        req.write(body)
+        req.end()
+      })
+    }
+
+    if (provider === 'claude') {
+      if (!claudeApiKey) return { error: 'No Claude API key configured' }
+      return await new Promise<{ summary?: string; error?: string }>((resolve) => {
+        const body = JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 256,
+          messages: [{ role: 'user', content: prompt }]
+        })
+        const options = {
+          hostname: 'api.anthropic.com',
+          path: '/v1/messages',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body),
+            'x-api-key': claudeApiKey,
+            'anthropic-version': '2023-06-01'
+          }
+        }
+        const req = https.request(options, (res) => {
+          let data = ''
+          res.on('data', (c: Buffer) => { data += c.toString() })
+          res.on('end', () => {
+            try {
+              const json = JSON.parse(data)
+              if (json.error) { resolve({ error: `Claude: ${json.error.message ?? json.error.type ?? 'Unknown error'}` }); return }
+              const text = json.content?.[0]?.text
+              if (!text) resolve({ error: 'Claude returned no content — check your API key' })
+              else resolve({ summary: text })
+            } catch { resolve({ error: 'Invalid response from Claude' }) }
+          })
+        })
+        req.on('error', (err) => resolve({ error: err.message }))
+        req.setTimeout(30000, () => { req.destroy(); resolve({ error: 'Timeout' }) })
+        req.write(body)
+        req.end()
+      })
+    }
+
+    return { error: 'No AI provider configured' }
+  })
+
   // ── Item move / copy ─────────────────────────────────────────────────────────
   ipcMain.handle('item:move', (_e, id: number, targetVaultId: number, targetFolderId?: number | null) =>
     itemQueries.move(id, targetVaultId, targetFolderId)
@@ -318,6 +521,111 @@ function parseNetscapeBookmarks(html: string): { url: string; title: string }[] 
   return results
 }
 
+
+// ── Vault HTML export helper ──────────────────────────────────────────────────
+interface VaultHtmlItem {
+  id: number; type: string; title: string | null; url: string | null
+  content: string | null; created_at: number; vaultName: string
+  tags?: Array<{ name: string; color: string }>; code_lang?: string | null
+}
+
+function generateVaultHtml(items: VaultHtmlItem[], vaults: Array<{ name: string; color: string }>): string {
+  const dataJson = JSON.stringify(items.map(i => ({
+    id: i.id, type: i.type,
+    title: i.title || i.url || 'Untitled',
+    url: i.url || '',
+    snippet: (i.content || '').replace(/<[^>]+>/g, ' ').slice(0, 200),
+    vault: i.vaultName,
+    date: new Date(i.created_at * 1000).toLocaleDateString(),
+    tags: (i.tags || []).map(t => t.name).join(', '),
+    lang: i.code_lang || ''
+  })))
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hoard — Vault Export</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0a0a;color:#e4e4e4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;padding:24px 16px}
+h1{font-size:1.4rem;font-weight:700;margin-bottom:4px;color:#fff}.subtitle{color:#555;font-size:.8rem;margin-bottom:20px}
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+input{flex:1;min-width:200px;padding:8px 12px;background:#1c1c1c;border:1px solid #252525;border-radius:8px;color:#e4e4e4;font-size:.85rem;outline:none}
+input:focus{border-color:#c9952a55}
+.filter-btn{padding:6px 14px;border-radius:8px;border:1px solid #252525;background:#1c1c1c;color:#888;font-size:.75rem;cursor:pointer;transition:all .15s}
+.filter-btn.active,.filter-btn:hover{background:#c9952a22;color:#c9952a;border-color:#c9952a44}
+.count{color:#555;font-size:.8rem;margin-bottom:12px}.count span{color:#c9952a}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.card{background:#141414;border:1px solid #1e1e1e;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;transition:border-color .15s}
+.card:hover{border-color:#252525}
+.type-badge{display:inline-flex;padding:2px 8px;border-radius:99px;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;width:fit-content}
+.badge-link{background:#1d3044;color:#7eb8f7}
+.badge-note{background:#102818;color:#6ee7b7}
+.badge-image{background:#221030;color:#c084fc}
+.badge-code{background:#2a1c06;color:#fbbf24}
+.card-title{font-size:.9rem;font-weight:600;color:#e4e4e4;line-height:1.3;word-break:break-word}
+.card-title a{color:inherit;text-decoration:none}.card-title a:hover{color:#c9952a}
+.card-snippet{font-size:.75rem;color:#666;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:auto}
+.card-date{font-size:.7rem;color:#444}
+.card-tags{font-size:.7rem;color:#888}
+.card-vault{font-size:.7rem;padding:2px 6px;background:#1c1c1c;border-radius:4px;color:#666}
+.empty{text-align:center;padding:60px 20px;color:#444;font-size:.9rem}
+</style>
+</head>
+<body>
+<h1>🐉 Hoard</h1>
+<p class="subtitle">Exported ${new Date().toLocaleDateString()} · ${items.length} items · ${vaults.map(v => v.name).join(', ')}</p>
+<div class="controls">
+  <input id="search" type="text" placeholder="Search…" oninput="filter()">
+  <button class="filter-btn active" onclick="setType('',this)">All</button>
+  <button class="filter-btn" onclick="setType('link',this)">Links</button>
+  <button class="filter-btn" onclick="setType('note',this)">Notes</button>
+  <button class="filter-btn" onclick="setType('image',this)">Images</button>
+  <button class="filter-btn" onclick="setType('code',this)">Code</button>
+</div>
+<p class="count"><span id="cnt">${items.length}</span> items</p>
+<div class="grid" id="grid"></div>
+<script>
+const DATA=${dataJson};
+let typeFilter='';
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function renderCard(i){
+  const href=i.url?'<a href="'+esc(i.url)+'" target="_blank" rel="noopener">'+esc(i.title)+'</a>':esc(i.title)
+  return '<div class="card">'+
+    '<span class="type-badge badge-'+i.type+'">'+i.type+'</span>'+
+    '<div class="card-title">'+href+'</div>'+
+    (i.snippet?'<div class="card-snippet">'+esc(i.snippet)+'</div>':'')+
+    '<div class="card-meta">'+
+    '<span class="card-date">'+i.date+'</span>'+
+    (i.tags?'<span class="card-tags">'+esc(i.tags)+'</span>':'')+
+    '<span class="card-vault">'+esc(i.vault)+'</span>'+
+    '</div></div>'
+}
+function filter(){
+  const q=document.getElementById('search').value.toLowerCase()
+  const shown=DATA.filter(i=>
+    (!typeFilter||i.type===typeFilter)&&
+    (!q||i.title.toLowerCase().includes(q)||i.url.toLowerCase().includes(q)||i.snippet.toLowerCase().includes(q))
+  )
+  document.getElementById('cnt').textContent=shown.length
+  const g=document.getElementById('grid')
+  if(!shown.length){g.innerHTML='<div class="empty">No items found</div>';return}
+  g.innerHTML=shown.map(renderCard).join('')
+}
+function setType(t,btn){
+  typeFilter=t
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'))
+  btn.classList.add('active')
+  filter()
+}
+filter()
+</script>
+</body>
+</html>`
+}
 
 // ── URL metadata ──────────────────────────────────────────────────────────────
 
@@ -416,10 +724,55 @@ async function fetchYouTubeMetadata(videoId: string, rawUrl: string): Promise<Ur
   }
 }
 
+// ── Vimeo helpers ─────────────────────────────────────────────────────────────
+
+function extractVimeoId(url: string): string | null {
+  const m = url.match(/vimeo\.com\/(?:video\/)?(\d+)/)
+  return m ? m[1] : null
+}
+
+async function fetchVimeoMetadata(videoId: string, rawUrl: string): Promise<UrlMetadata> {
+  const favicon = 'https://www.google.com/s2/favicons?domain=vimeo.com&sz=32'
+  const fallback: UrlMetadata = { title: rawUrl, favicon, readingTime: 1 }
+
+  try {
+    const oembedUrl = `https://vimeo.com/api/oembed.json?url=https://vimeo.com/${videoId}`
+    const data = await new Promise<Record<string, string>>((resolve, reject) => {
+      https.get(oembedUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+        let body = ''
+        res.on('data', (c: string) => { body += c })
+        res.on('end', () => { try { resolve(JSON.parse(body)) } catch { reject(new Error('Bad JSON')) } })
+      }).on('error', reject)
+    })
+
+    let thumbnailPath: string | undefined
+    if (data.thumbnail_url) {
+      const imagesDir = getImagesDir()
+      const thumbPath = path.join(imagesDir, `vimeo_${videoId}_${Date.now()}.jpg`)
+      try { await downloadFile(data.thumbnail_url, thumbPath); thumbnailPath = thumbPath } catch { /* skip */ }
+    }
+
+    return {
+      title: data.title || rawUrl,
+      description: `${data.author_name ? `by ${data.author_name}` : ''} · Vimeo`,
+      favicon,
+      readingTime: 1,
+      thumbnailPath,
+      channel: data.author_name
+    }
+  } catch {
+    return fallback
+  }
+}
+
 export function fetchUrlMetadata(rawUrl: string): Promise<UrlMetadata> {
   // ── YouTube fast-path ─────────────────────────────────────────────────────
   const ytId = extractYouTubeId(rawUrl)
   if (ytId) return fetchYouTubeMetadata(ytId, rawUrl)
+
+  // ── Vimeo fast-path ───────────────────────────────────────────────────────
+  const vimeoId = extractVimeoId(rawUrl)
+  if (vimeoId) return fetchVimeoMetadata(vimeoId, rawUrl)
 
   // ── Generic HTML scrape ───────────────────────────────────────────────────
   return new Promise((resolve) => {

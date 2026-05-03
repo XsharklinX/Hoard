@@ -43,7 +43,8 @@ contextBridge.exposeInMainWorld('api', {
     load:            ()                   => ipcRenderer.invoke('settings:load'),
     save:            (patch: unknown)     => ipcRenderer.invoke('settings:save', patch),
     getDataPath:     ()                   => ipcRenderer.invoke('settings:get-data-path'),
-    openDataFolder:  ()                   => ipcRenderer.invoke('settings:open-data-folder')
+    openDataFolder:  ()                   => ipcRenderer.invoke('settings:open-data-folder'),
+    chooseBackupDir: ()                   => ipcRenderer.invoke('settings:choose-backup-dir')
   },
 
   util: {
@@ -69,8 +70,22 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   backup: {
-    export: () => ipcRenderer.invoke('backup:export'),
-    import: () => ipcRenderer.invoke('backup:import')
+    export:     () => ipcRenderer.invoke('backup:export'),
+    import:     () => ipcRenderer.invoke('backup:import'),
+    exportHtml: () => ipcRenderer.invoke('backup:export-html'),
+    exportJson: (folderPath: string) => ipcRenderer.invoke('backup:export-json', folderPath)
+  },
+
+  app: {
+    getVersion:          () => ipcRenderer.invoke('app:get-version'),
+    checkUpdates:        () => ipcRenderer.invoke('app:check-updates'),
+    installUpdate:       () => ipcRenderer.invoke('app:install-update'),
+    openExtensionFolder: () => ipcRenderer.invoke('app:open-extension-folder'),
+    closeWindow:         () => ipcRenderer.invoke('app:close-window')
+  },
+
+  ai: {
+    summarize: (params: unknown) => ipcRenderer.invoke('ai:summarize', params)
   },
 
   // Push events from main process → renderer

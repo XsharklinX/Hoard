@@ -182,15 +182,18 @@ function setupFts(): void {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
-export async function initDb(password?: string): Promise<{ needsPassword?: boolean }> {
-  const userDataPath = app.getPath('userData')
-  const dbPath = path.join(userDataPath, 'hoard.db')
-
+/** Open and fully initialise a database at the given path.
+ *  Pass ':memory:' in tests to avoid touching the filesystem. */
+export function openDb(dbPath: string): void {
   db = new Database(dbPath)
-
   run('PRAGMA foreign_keys = ON')
-  run('PRAGMA journal_mode = WAL')
+  if (dbPath !== ':memory:') run('PRAGMA journal_mode = WAL')
+  applySchema()
+  applyMigrations()
+  setupFts()
+}
 
+function applySchema(): void {
   // ── Base schema (always idempotent, full current shape) ───────────────────
   run(`CREATE TABLE IF NOT EXISTS vaults (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -243,18 +246,16 @@ export async function initDb(password?: string): Promise<{ needsPassword?: boole
     PRIMARY KEY (item_id, tag_id)
   )`)
 
-  // ── Run any pending migrations on existing DBs ────────────────────────────
-  applyMigrations()
-
-  // ── FTS (rebuilt every start to stay consistent) ──────────────────────────
-  setupFts()
-
   // ── Seed default vault ────────────────────────────────────────────────────
   const count = (db.prepare('SELECT COUNT(*) c FROM vaults').get() as any).c
   if (count === 0) {
     run("INSERT INTO vaults (name, color) VALUES ('My Hoard', '#c9952a')")
   }
+}
 
+export async function initDb(_password?: string): Promise<{ needsPassword?: boolean }> {
+  const dbPath = path.join(app.getPath('userData'), 'hoard.db')
+  openDb(dbPath)
   return { needsPassword: false }
 }
 
@@ -312,6 +313,7 @@ export interface CreateItemData {
   codeLang?: string
   archivePath?: string
   archiveStatus?: 'pending' | 'done' | 'failed' | null
+  readStatus?: 'unread' | 'read'
   tagIds?: number[]
 }
 
@@ -399,7 +401,7 @@ export const itemQueries = {
     const fullQuery = `${baseQuery} WHERE ${where.join(' AND ')} ORDER BY i.is_pinned DESC, i.created_at DESC`
     rows = all(fullQuery, queryParams)
 
-    return attachTags(rows as { id: number }[])
+    return attachTags(rows as any[])
   },
 
   create: (data: CreateItemData) => {
@@ -448,9 +450,9 @@ export const itemQueries = {
     if (data.readingTime !== undefined) { fields.push('reading_time=?'); values.push(data.readingTime) }
     if (data.imagePath   !== undefined) { fields.push('image_path=?');   values.push(data.imagePath) }
     if (data.url         !== undefined) { fields.push('url=?');          values.push(data.url) }
-    if ((data as any).readStatus !== undefined) {
+    if (data.readStatus !== undefined) {
       fields.push('read_status=?')
-      values.push((data as any).readStatus)
+      values.push(data.readStatus)
     }
 
     if (fields.length) {
