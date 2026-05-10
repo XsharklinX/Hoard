@@ -38,6 +38,8 @@ export interface Folder {
   parent_id: number | null
   name: string
   smart_query: string | null
+  sort_order: number
+  icon: string | null
   created_at: number
   updated_at: number
 }
@@ -64,6 +66,7 @@ export interface Item {
   code_lang: string | null
   archive_path: string | null
   archive_status: 'pending' | 'done' | 'failed' | null
+  link_status: 'ok' | 'dead' | 'unknown' | null
   read_status: 'unread' | 'read'
   is_pinned: 0 | 1
   created_at: number
@@ -115,10 +118,11 @@ declare global {
         delete: (id: number) => Promise<void>
       }
       folders: {
-        list: (vaultId: number) => Promise<Folder[]>
-        create: (vaultId: number, name: string, parentId?: number, smartQuery?: string) => Promise<Folder>
-        update: (id: number, name: string, smartQuery?: string) => Promise<Folder>
-        delete: (id: number) => Promise<void>
+        list:    (vaultId: number) => Promise<Folder[]>
+        create:  (vaultId: number, name: string, parentId?: number, smartQuery?: string, icon?: string) => Promise<Folder>
+        update:  (id: number, name: string, smartQuery?: string, icon?: string) => Promise<Folder>
+        reorder: (orderedIds: number[]) => Promise<void>
+        delete:  (id: number) => Promise<void>
       }
       items: {
         counts:       (vaultId: number) => Promise<{ all: number, link: number, note: number, image: number, code: number }>
@@ -135,6 +139,10 @@ declare global {
         searchItems:  (vaultId: number, q: string) => Promise<Array<{ id: number; title: string | null; type: string }>>
         openReader:   (archivePath: string, title: string) => Promise<void>
         tagSelected:  (ids: number[], tagIds: number[]) => Promise<void>
+        versionsList: (itemId: number) => Promise<Array<{ id: number; created_at: number }>>
+        versionGet:   (versionId: number) => Promise<{ id: number; item_id: number; content: string; created_at: number } | null>
+        versionSave:  (itemId: number, content: string) => Promise<void>
+        checkLinks:   (vaultId: number) => Promise<{ checked: number }>
       }
       tags: {
         list: (vaultId: number) => Promise<Tag[]>

@@ -708,14 +708,24 @@ function Toggle({ label, value, onChange, description }: {
   description?: string
 }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="flex flex-col">
-        <span className="text-sm text-text-primary">{label}</span>
-        {description && <span className="text-[11px] text-text-muted">{description}</span>}
+    <div className="flex items-center justify-between gap-4 group">
+      <div className="flex flex-col gap-0.5">
+        <span className="text-sm font-medium text-text-primary group-hover:text-gold transition-colors">{label}</span>
+        {description && <span className="text-[11px] text-text-muted leading-tight">{description}</span>}
       </div>
-      <button onClick={() => onChange(!value)}
-        className={cn('relative w-9 h-5 rounded-full transition-colors shrink-0', value ? 'bg-gold' : 'bg-border')}>
-        <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', value ? 'translate-x-4' : 'translate-x-0.5')} />
+      <button
+        onClick={() => onChange(!value)}
+        className={cn(
+          'relative w-10 h-[22px] rounded-full transition-all duration-300 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 border border-transparent',
+          value ? 'bg-gold shadow-[0_0_10px_rgba(201,149,42,0.2)]' : 'bg-border/60 hover:bg-border'
+        )}
+      >
+        <span
+          className={cn(
+            'absolute top-[3px] w-3.5 h-3.5 bg-white rounded-full shadow-md transition-all duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)]',
+            value ? 'left-[22px]' : 'left-1'
+          )}
+        />
       </button>
     </div>
   )

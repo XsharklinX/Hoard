@@ -135,6 +135,30 @@ const MIGRATIONS: Array<{ version: number; up: () => void }> = [
       if (!columnExists('items', 'read_status'))
         run("ALTER TABLE items ADD COLUMN read_status TEXT NOT NULL DEFAULT 'unread' CHECK(read_status IN ('unread','read'))")
     }
+  },
+  {
+    // link_status + folder order + folder icon
+    version: 7,
+    up: () => {
+      if (!columnExists('items', 'link_status'))
+        run("ALTER TABLE items ADD COLUMN link_status TEXT CHECK(link_status IN ('ok','dead','unknown'))")
+      if (!columnExists('folders', 'sort_order'))
+        run('ALTER TABLE folders ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0')
+      if (!columnExists('folders', 'icon'))
+        run('ALTER TABLE folders ADD COLUMN icon TEXT')
+    }
+  },
+  {
+    // item_versions table for note history
+    version: 8,
+    up: () => {
+      run(`CREATE TABLE IF NOT EXISTS item_versions (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        content    TEXT,
+        created_at INTEGER DEFAULT (strftime('%s','now'))
+      )`)
+    }
   }
 ]
 
@@ -281,16 +305,23 @@ export const vaultQueries = {
 
 export const folderQueries = {
   list: (vaultId: number) =>
-    all('SELECT * FROM folders WHERE vault_id=? ORDER BY name ASC', [vaultId]),
+    all('SELECT * FROM folders WHERE vault_id=? ORDER BY sort_order ASC, name ASC', [vaultId]),
 
-  create: (vaultId: number, name: string, parentId?: number, smartQuery?: string) =>
-    insertReturning('folders', 'INSERT INTO folders (vault_id, parent_id, name, smart_query) VALUES (?, ?, ?, ?)', [
-      vaultId, parentId ?? null, name, smartQuery ?? null
+  create: (vaultId: number, name: string, parentId?: number, smartQuery?: string, icon?: string) =>
+    insertReturning('folders', 'INSERT INTO folders (vault_id, parent_id, name, smart_query, icon) VALUES (?, ?, ?, ?, ?)', [
+      vaultId, parentId ?? null, name, smartQuery ?? null, icon ?? null
     ]),
 
-  update: (id: number, name: string, smartQuery?: string) => {
-    run("UPDATE folders SET name=?, smart_query=?, updated_at=strftime('%s','now') WHERE id=?", [name, smartQuery ?? null, id])
+  update: (id: number, name: string, smartQuery?: string, icon?: string) => {
+    run("UPDATE folders SET name=?, smart_query=?, icon=?, updated_at=strftime('%s','now') WHERE id=?", [name, smartQuery ?? null, icon ?? null, id])
     return get('SELECT * FROM folders WHERE id=?', [id])
+  },
+
+  reorder: (orderedIds: number[]) => {
+    const stmt = db.prepare('UPDATE folders SET sort_order=? WHERE id=?')
+    db.transaction(() => {
+      orderedIds.forEach((id, idx) => stmt.run(idx, id))
+    })()
   },
 
   delete: (id: number) => {
@@ -366,18 +397,37 @@ export const itemQueries = {
       if (folder) {
         try {
           const smart = JSON.parse(folder)
-          if (smart.type) {
-            where.push('i.type=?')
-            queryParams.push(smart.type)
-          }
-          if (smart.search) {
-            where.push('i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)')
-            queryParams.push(smart.search + '*')
-          }
-          if (smart.tagId) {
-            baseQuery += 'JOIN item_tags it ON it.item_id = i.id '
-            where.push('it.tag_id=?')
-            queryParams.push(smart.tagId)
+          // New multi-condition format: { logic: 'AND'|'OR', conditions: [...] }
+          if (smart.logic && Array.isArray(smart.conditions)) {
+            const condSqls: string[] = []
+            for (const cond of smart.conditions as Array<Record<string, any>>) {
+              if (cond.type) {
+                condSqls.push('i.type=?'); queryParams.push(cond.type)
+              }
+              if (cond.readStatus) {
+                condSqls.push('i.read_status=?'); queryParams.push(cond.readStatus)
+              }
+              if (cond.domain) {
+                condSqls.push("(i.url LIKE ? OR i.url LIKE ?)");
+                queryParams.push(`%://${cond.domain}/%`, `%://${cond.domain}`)
+              }
+              if (cond.search) {
+                condSqls.push('i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)')
+                queryParams.push(cond.search.replace(/['"*]/g, ' ').trim() + '*')
+              }
+              if (cond.hasImage) {
+                condSqls.push('i.image_path IS NOT NULL')
+              }
+            }
+            if (condSqls.length) {
+              const joiner = smart.logic === 'OR' ? ' OR ' : ' AND '
+              where.push(`(${condSqls.join(joiner)})`)
+            }
+          } else {
+            // Legacy single-condition format
+            if (smart.type)   { where.push('i.type=?'); queryParams.push(smart.type) }
+            if (smart.search) { where.push('i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)'); queryParams.push(smart.search + '*') }
+            if (smart.tagId)  { baseQuery += 'JOIN item_tags it ON it.item_id = i.id '; where.push('it.tag_id=?'); queryParams.push(smart.tagId) }
           }
         } catch (err) {
           console.error('Failed to parse smart_query', folder)
@@ -453,6 +503,10 @@ export const itemQueries = {
     if (data.readStatus !== undefined) {
       fields.push('read_status=?')
       values.push(data.readStatus)
+    }
+    if ((data as any).linkStatus !== undefined) {
+      fields.push('link_status=?')
+      values.push((data as any).linkStatus)
     }
 
     if (fields.length) {
@@ -596,6 +650,39 @@ export const tagQueries = {
       }
     })()
   }
+}
+
+// ── Version history ────────────────────────────────────────────────────────────
+
+export const versionQueries = {
+  save: (itemId: number, content: string) => {
+    run('INSERT INTO item_versions (item_id, content) VALUES (?, ?)', [itemId, content])
+    // Keep only last 20 versions per item
+    run(`DELETE FROM item_versions WHERE item_id=? AND id NOT IN (
+      SELECT id FROM item_versions WHERE item_id=? ORDER BY created_at DESC LIMIT 20
+    )`, [itemId, itemId])
+  },
+
+  list: (itemId: number) =>
+    all<{ id: number; created_at: number }>('SELECT id, created_at FROM item_versions WHERE item_id=? ORDER BY created_at DESC', [itemId]),
+
+  get: (versionId: number) =>
+    get<{ id: number; item_id: number; content: string; created_at: number }>('SELECT * FROM item_versions WHERE id=?', [versionId]),
+
+  delete: (itemId: number) => run('DELETE FROM item_versions WHERE item_id=?', [itemId])
+}
+
+// ── Dead link checker ──────────────────────────────────────────────────────────
+
+export function getUncheckedLinks(vaultId: number): Array<{ id: number; url: string }> {
+  return all<{ id: number; url: string }>(
+    "SELECT id, url FROM items WHERE vault_id=? AND type='link' AND url IS NOT NULL AND link_status IS NULL LIMIT 50",
+    [vaultId]
+  )
+}
+
+export function setLinkStatus(id: number, status: 'ok' | 'dead' | 'unknown'): void {
+  run('UPDATE items SET link_status=? WHERE id=?', [status, id])
 }
 
 // ── Images ────────────────────────────────────────────────────────────────────

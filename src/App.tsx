@@ -15,6 +15,7 @@ import { EditItemModal } from './components/EditItemModal'
 import { CommandPalette } from './components/CommandPalette'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { WelcomeScreen } from './components/WelcomeScreen'
+import { ImageLightbox } from './components/ImageLightbox'
 import { useStore } from './store'
 import type { Vault, Item } from './types'
 
@@ -48,8 +49,8 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 export default function App() {
   const {
     loadVaults, selectedItem, checkSecurity, appLocked, unlock, lockApp, settings, updateSettings,
-    updateArchiveStatus, selectFolder, selectTag, selectType, loadCounts, reloadFolders,
-    selectedFolder, selectedTag, selectedType
+    updateArchiveStatus, updateLinkStatus, selectFolder, selectTag, selectType, loadCounts, reloadFolders,
+    selectedFolder, selectedTag, selectedType, selectedVault
   } = useStore()
 
   const [addOpen,      setAddOpen]      = useState(false)
@@ -135,6 +136,24 @@ export default function App() {
     return () => { window.api.off('item:archive-status', handler) }
   }, [])
 
+  // ── Link status push ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = window.api.on('item:link-status', (payload: unknown) => {
+      const { id, status } = payload as { id: number; status: 'ok' | 'dead' | 'unknown' }
+      updateLinkStatus(id, status)
+    })
+    return () => { window.api.off('item:link-status', handler) }
+  }, [])
+
+  // ── Trigger dead link check on vault load ─────────────────────────────────
+  useEffect(() => {
+    if (!selectedVault) return
+    const t = setTimeout(() => {
+      window.api.items.checkLinks(selectedVault.id).catch(console.error)
+    }, 5000)
+    return () => clearTimeout(t)
+  }, [selectedVault?.id])
+
   // ── Auto-updater push ──────────────────────────────────────────────────────
   useEffect(() => {
     const onAvailable  = (p: unknown) => toast.info(`Update ${(p as { version: string }).version} is downloading…`)
@@ -197,6 +216,8 @@ export default function App() {
     </div>
     </ErrorBoundary>
     </Tooltip.Provider>
+
+    <ImageLightbox />
 
     {showWelcome && (
       <WelcomeScreen onComplete={async () => {

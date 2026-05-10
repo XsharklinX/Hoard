@@ -9,10 +9,11 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   folders: {
-    list:   (vaultId: number)                                                        => ipcRenderer.invoke('folder:list', vaultId),
-    create: (vaultId: number, name: string, parentId?: number, smartQuery?: string)  => ipcRenderer.invoke('folder:create', vaultId, name, parentId, smartQuery),
-    update: (id: number, name: string, smartQuery?: string)                          => ipcRenderer.invoke('folder:update', id, name, smartQuery),
-    delete: (id: number)                                                             => ipcRenderer.invoke('folder:delete', id)
+    list:    (vaultId: number)                                                                    => ipcRenderer.invoke('folder:list', vaultId),
+    create:  (vaultId: number, name: string, parentId?: number, smartQuery?: string, icon?: string) => ipcRenderer.invoke('folder:create', vaultId, name, parentId, smartQuery, icon),
+    update:  (id: number, name: string, smartQuery?: string, icon?: string)                       => ipcRenderer.invoke('folder:update', id, name, smartQuery, icon),
+    reorder: (orderedIds: number[])                                                               => ipcRenderer.invoke('folder:reorder', orderedIds),
+    delete:  (id: number)                                                                         => ipcRenderer.invoke('folder:delete', id)
   },
 
   items: {
@@ -29,7 +30,11 @@ contextBridge.exposeInMainWorld('api', {
     folderCounts: (vaultId: number)                                                      => ipcRenderer.invoke('item:folder-counts', vaultId),
     searchItems:  (vaultId: number, q: string)                                          => ipcRenderer.invoke('item:search-items', vaultId, q),
     openReader:   (archivePath: string, title: string)                                  => ipcRenderer.invoke('item:open-reader', archivePath, title),
-    tagSelected:  (ids: number[], tagIds: number[])                                     => ipcRenderer.invoke('item:tag-selected', ids, tagIds)
+    tagSelected:  (ids: number[], tagIds: number[])                                     => ipcRenderer.invoke('item:tag-selected', ids, tagIds),
+    versionsList: (itemId: number)                                                       => ipcRenderer.invoke('item:versions-list', itemId),
+    versionGet:   (versionId: number)                                                    => ipcRenderer.invoke('item:version-get', versionId),
+    versionSave:  (itemId: number, content: string)                                     => ipcRenderer.invoke('item:version-save', itemId, content),
+    checkLinks:   (vaultId: number)                                                      => ipcRenderer.invoke('item:check-links', vaultId)
   },
 
   tags: {

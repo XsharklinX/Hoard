@@ -215,6 +215,16 @@ if (!window.__hoardContentLoaded) {
           color: #34d399;
           pointer-events: none;
         }
+        .btn.code {
+          background: rgba(99,179,237,.1);
+          border-color: rgba(99,179,237,.3);
+          color: #63b3ed;
+        }
+        .btn.code:hover {
+          background: rgba(99,179,237,.2);
+          border-color: rgba(99,179,237,.5);
+          color: #90cdf4;
+        }
         .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
       </style>
       <div class="wrap" id="wrap">
@@ -244,6 +254,9 @@ if (!window.__hoardContentLoaded) {
       const text = sel ? sel.toString().trim() : ''
       if (!text) return
 
+      const isCode   = _bubble._isCode   || false
+      const codeLang = _bubble._codeLang || null
+
       const content = withSource
         ? `${text}\n\n— [${document.title || host}](${location.href})`
         : text
@@ -255,21 +268,54 @@ if (!window.__hoardContentLoaded) {
 
       chrome.runtime.sendMessage({
         action:    'hoard:save-selection',
-        text:      content,
+        text:      isCode ? text : content,
         pageUrl:   location.href,
-        pageTitle: document.title
+        pageTitle: document.title,
+        isCode,
+        codeLang
       })
 
       clearTimeout(_savedTimer)
       _savedTimer = setTimeout(() => hideBubble(), 900)
     }
 
-    btnNote.addEventListener('mousedown',  (e) => { e.preventDefault(); e.stopPropagation(); doSave(false) })
+    function doSaveCode() {
+      const sel  = window.getSelection()
+      const text = sel ? sel.toString().trim() : ''
+      if (!text) return
+
+      const codeLang = _bubble._codeLang || null
+
+      btnQuote.textContent = '✓ Saved'
+      btnQuote.className   = 'btn saved'
+      btnNote.className    = 'btn saved'
+      btnNote.textContent  = '✓'
+
+      chrome.runtime.sendMessage({
+        action:    'hoard:save-selection',
+        text,
+        pageUrl:   location.href,
+        pageTitle: document.title,
+        isCode:    true,
+        codeLang
+      })
+
+      clearTimeout(_savedTimer)
+      _savedTimer = setTimeout(() => hideBubble(), 900)
+    }
+
+    btnNote.addEventListener('mousedown',  (e) => {
+      e.preventDefault(); e.stopPropagation()
+      if (_bubble._isCode) doSaveCode()
+      else doSave(false)
+    })
     btnQuote.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); doSave(true) })
 
     // Store refs
     _bubble._wrap    = wrap
     _bubble._preview = preview
+    _bubble._isCode  = false
+    _bubble._codeLang = null
 
     Object.assign(_bubble.style, {
       all:      'initial',
@@ -282,10 +328,31 @@ if (!window.__hoardContentLoaded) {
     return _bubble
   }
 
-  function showBubble(x, y, selectedText) {
+  function detectCodeContext() {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return { isCode: false, codeLang: null }
+    let node = sel.anchorNode
+    while (node && node !== document.body) {
+      if (node.nodeType === 1) {
+        const tag = node.tagName?.toLowerCase()
+        if (tag === 'code' || tag === 'pre') {
+          const cls = node.className || ''
+          const m = cls.match(/(?:language|lang)-(\w[\w-]*)/)
+          return { isCode: true, codeLang: m ? m[1] : null }
+        }
+      }
+      node = node.parentNode
+    }
+    return { isCode: false, codeLang: null }
+  }
+
+  function showBubble(x, y, selectedText, isCode, codeLang) {
     const b = getBubble()
     const wrap    = b._wrap
     const preview = b._preview
+
+    b._isCode  = isCode  || false
+    b._codeLang = codeLang || null
 
     // Update preview text
     preview.textContent = selectedText.slice(0, 120) + (selectedText.length > 120 ? '…' : '')
@@ -293,8 +360,13 @@ if (!window.__hoardContentLoaded) {
     // Reset buttons in case they were in saved state
     const btnNote  = b.shadowRoot.getElementById('btnNote')
     const btnQuote = b.shadowRoot.getElementById('btnQuote')
-    btnNote.className  = 'btn'
-    btnNote.innerHTML  = '<span class="dot" style="background:#6ee7b7"></span>Note'
+    if (isCode) {
+      btnNote.className = 'btn code'
+      btnNote.innerHTML = `<span style="font-size:10px;letter-spacing:.01em">&lt;/&gt;</span>${codeLang ? ' ' + codeLang : ' Code'}`
+    } else {
+      btnNote.className  = 'btn'
+      btnNote.innerHTML  = '<span class="dot" style="background:#6ee7b7"></span>Note'
+    }
     btnQuote.className = 'btn primary'
     btnQuote.textContent = 'Save ↗'
 
@@ -330,7 +402,8 @@ if (!window.__hoardContentLoaded) {
 
       if (text.length < 5) { hideBubble(); return }
 
-      showBubble(e.clientX, e.clientY, text)
+      const { isCode, codeLang } = detectCodeContext()
+      showBubble(e.clientX, e.clientY, text, isCode, codeLang)
     }, 15)
   })
 

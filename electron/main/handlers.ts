@@ -7,7 +7,8 @@ import { URL } from 'url'
 import updaterPkg from 'electron-updater'
 const { autoUpdater } = updaterPkg
 import { vaultQueries, folderQueries, itemQueries, tagQueries, getImagesDir, CreateItemData,
-         initDb, enableEncryption, disableEncryption, verifyPassword, hasEncryptedDb, isEncryptionEnabled } from './db'
+         initDb, enableEncryption, disableEncryption, verifyPassword, hasEncryptedDb, isEncryptionEnabled,
+         versionQueries, getUncheckedLinks, setLinkStatus } from './db'
 import { loadSettings, saveSettings } from './settings'
 import { sendToRenderer } from './window'
 import { exportBackup, importBackup } from './backup'
@@ -26,10 +27,11 @@ export function registerHandlers(): void {
   ipcMain.handle('vault:delete', (_e, id: number)                          => { vaultQueries.delete(id) })
 
   // ── Folders ─────────────────────────────────────────────────────────────────
-  ipcMain.handle('folder:list',   (_e, vaultId: number)                              => folderQueries.list(vaultId))
-  ipcMain.handle('folder:create', (_e, vaultId: number, name: string, parentId?: number, smartQuery?: string) => folderQueries.create(vaultId, name, parentId, smartQuery))
-  ipcMain.handle('folder:update', (_e, id: number, name: string, smartQuery?: string) => folderQueries.update(id, name, smartQuery))
-  ipcMain.handle('folder:delete', (_e, id: number)                                   => { folderQueries.delete(id) })
+  ipcMain.handle('folder:list',    (_e, vaultId: number)                                                              => folderQueries.list(vaultId))
+  ipcMain.handle('folder:create',  (_e, vaultId: number, name: string, parentId?: number, smartQuery?: string, icon?: string) => folderQueries.create(vaultId, name, parentId, smartQuery, icon))
+  ipcMain.handle('folder:update',  (_e, id: number, name: string, smartQuery?: string, icon?: string)                         => folderQueries.update(id, name, smartQuery, icon))
+  ipcMain.handle('folder:reorder', (_e, orderedIds: number[])                                                                  => { folderQueries.reorder(orderedIds) })
+  ipcMain.handle('folder:delete',  (_e, id: number)                                                                           => { folderQueries.delete(id) })
 
   // ── Items ────────────────────────────────────────────────────────────────────
   ipcMain.handle('item:counts', (_e, vaultId: number) => itemQueries.counts(vaultId))
@@ -54,6 +56,24 @@ export function registerHandlers(): void {
   })
   ipcMain.handle('item:open-reader', (_e, archivePath: string, title: string)        => {
     openReaderWindow(archivePath, title)
+  })
+
+  // ── Version history ──────────────────────────────────────────────────────────
+  ipcMain.handle('item:versions-list',    (_e, itemId: number)       => versionQueries.list(itemId))
+  ipcMain.handle('item:version-get',      (_e, versionId: number)    => versionQueries.get(versionId))
+  ipcMain.handle('item:version-save',     (_e, itemId: number, content: string) => { versionQueries.save(itemId, content) })
+
+  // ── Dead link checker ────────────────────────────────────────────────────────
+  ipcMain.handle('item:check-links', async (_e, vaultId: number) => {
+    const links = getUncheckedLinks(vaultId)
+    let checked = 0
+    for (const link of links) {
+      const status = await checkLinkAlive(link.url)
+      setLinkStatus(link.id, status)
+      sendToRenderer('item:link-status', { id: link.id, status })
+      checked++
+    }
+    return { checked }
   })
 
   // ── Tags ─────────────────────────────────────────────────────────────────────
@@ -339,7 +359,15 @@ export function registerHandlers(): void {
     const extPath = app.isPackaged
       ? path.join(process.resourcesPath, 'extension')
       : path.join(app.getAppPath(), 'extension')
-    shell.openPath(extPath)
+    
+    if (fs.existsSync(extPath)) {
+      shell.openPath(extPath)
+    } else {
+      // Fallback: open the resources/app folder so they can see where it should be
+      const fallback = app.isPackaged ? process.resourcesPath : app.getAppPath()
+      shell.openPath(fallback)
+      console.error(`Extension folder not found at: ${extPath}. Opening fallback: ${fallback}`)
+    }
   })
 
   // ── AI summarize ─────────────────────────────────────────────────────────────
@@ -765,6 +793,105 @@ async function fetchVimeoMetadata(videoId: string, rawUrl: string): Promise<UrlM
   }
 }
 
+// ── Dead link check ───────────────────────────────────────────────────────────
+
+function checkLinkAlive(rawUrl: string): Promise<'ok' | 'dead' | 'unknown'> {
+  return new Promise((resolve) => {
+    let parsed: URL
+    try { parsed = new URL(rawUrl) } catch { resolve('unknown'); return }
+    const protocol = parsed.protocol === 'https:' ? https : http
+    const options = {
+      method: 'HEAD',
+      hostname: parsed.hostname,
+      port: parsed.port ? parseInt(parsed.port) : undefined,
+      path: parsed.pathname + parsed.search,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; HoardBot/1.0)' }
+    }
+    const req = protocol.request(options, (res) => {
+      const code = res.statusCode ?? 0
+      res.resume()
+      resolve(code >= 200 && code < 400 ? 'ok' : code >= 400 ? 'dead' : 'unknown')
+    })
+    req.on('error', () => resolve('unknown'))
+    req.setTimeout(8000, () => { req.destroy(); resolve('unknown') })
+    req.end()
+  })
+}
+
+// ── Reddit fast-path ──────────────────────────────────────────────────────────
+
+function isRedditUrl(url: string): boolean {
+  return /reddit\.com\/r\/[^/]+\/comments\//.test(url)
+}
+
+async function fetchRedditMetadata(rawUrl: string): Promise<UrlMetadata> {
+  const jsonUrl = rawUrl.replace(/\/$/, '') + '.json?limit=1'
+  const favicon = 'https://www.google.com/s2/favicons?domain=reddit.com&sz=32'
+  const fallback: UrlMetadata = { title: rawUrl, favicon, readingTime: 1 }
+  return new Promise((resolve) => {
+    const req = https.get(jsonUrl, { headers: { 'User-Agent': 'HoardBot/1.0' } }, (res) => {
+      let data = ''
+      res.setEncoding('utf8')
+      res.on('data', (c: string) => { data += c; if (data.length > 200_000) req.destroy() })
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data)
+          const post = json[0]?.data?.children?.[0]?.data
+          if (!post) { resolve(fallback); return }
+          const score = post.score ? ` · ${post.score >= 1000 ? (post.score / 1000).toFixed(1) + 'k' : post.score} pts` : ''
+          resolve({
+            title: post.title || fallback.title,
+            description: `r/${post.subreddit}${score} · ${post.num_comments ?? 0} comments`,
+            favicon,
+            readingTime: 1
+          })
+        } catch { resolve(fallback) }
+      })
+    })
+    req.on('error', () => resolve(fallback))
+    req.setTimeout(8000, () => { req.destroy(); resolve(fallback) })
+  })
+}
+
+// ── GitHub fast-path ──────────────────────────────────────────────────────────
+
+function extractGitHubRepo(url: string): { owner: string; repo: string } | null {
+  const m = url.match(/github\.com\/([^/]+)\/([^/?#]+)/)
+  if (!m) return null
+  return { owner: m[1], repo: m[2].replace(/\.git$/, '') }
+}
+
+async function fetchGitHubMetadata(owner: string, repo: string, rawUrl: string): Promise<UrlMetadata> {
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}`
+  const favicon = 'https://www.google.com/s2/favicons?domain=github.com&sz=32'
+  const fallback: UrlMetadata = { title: `${owner}/${repo}`, favicon, readingTime: 1 }
+  return new Promise((resolve) => {
+    const req = https.get(apiUrl, { headers: { 'User-Agent': 'HoardBot/1.0', 'Accept': 'application/vnd.github.v3+json' } }, (res) => {
+      let data = ''
+      res.setEncoding('utf8')
+      res.on('data', (c: string) => { data += c })
+      res.on('end', () => {
+        try {
+          const r = JSON.parse(data)
+          if (r.message) { resolve(fallback); return }
+          const stars = r.stargazers_count >= 1000
+            ? (r.stargazers_count / 1000).toFixed(1) + 'k ⭐'
+            : `${r.stargazers_count} ⭐`
+          const lang = r.language ? ` · ${r.language}` : ''
+          resolve({
+            title: r.full_name || fallback.title,
+            description: r.description ? `${r.description} · ${stars}${lang}` : `${stars}${lang}`,
+            favicon,
+            readingTime: 1
+          })
+        } catch { resolve(fallback) }
+      })
+    })
+    req.on('error', () => resolve(fallback))
+    req.setTimeout(8000, () => { req.destroy(); resolve(fallback) })
+  })
+}
+
 export function fetchUrlMetadata(rawUrl: string): Promise<UrlMetadata> {
   // ── YouTube fast-path ─────────────────────────────────────────────────────
   const ytId = extractYouTubeId(rawUrl)
@@ -773,6 +900,15 @@ export function fetchUrlMetadata(rawUrl: string): Promise<UrlMetadata> {
   // ── Vimeo fast-path ───────────────────────────────────────────────────────
   const vimeoId = extractVimeoId(rawUrl)
   if (vimeoId) return fetchVimeoMetadata(vimeoId, rawUrl)
+
+  // ── Reddit fast-path ──────────────────────────────────────────────────────
+  if (isRedditUrl(rawUrl)) return fetchRedditMetadata(rawUrl)
+
+  // ── GitHub fast-path ──────────────────────────────────────────────────────
+  const ghRepo = extractGitHubRepo(rawUrl)
+  if (ghRepo && /^https?:\/\/github\.com\/[^/]+\/[^/]+\/?$/.test(rawUrl)) {
+    return fetchGitHubMetadata(ghRepo.owner, ghRepo.repo, rawUrl)
+  }
 
   // ── Generic HTML scrape ───────────────────────────────────────────────────
   return new Promise((resolve) => {

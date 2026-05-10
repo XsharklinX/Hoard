@@ -18,6 +18,13 @@
         "mac": "Alt+S"
       },
       "description": "Open Hoard popup"
+    },
+    "quick-capture": {
+      "suggested_key": {
+        "default": "Alt+Shift+S",
+        "mac": "Alt+Shift+S"
+      },
+      "description": "Quick capture current page to Hoard (no popup)"
     }
   },
   "action": {

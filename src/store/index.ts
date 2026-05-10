@@ -15,7 +15,8 @@ interface HoardStore {
   items:          Item[]
   tags:           Tag[]
   searchQuery:    string
-  sortBy:         'newest' | 'oldest' | 'az' | 'za' | 'pinned'
+  sortBy:         'newest' | 'oldest' | 'az' | 'za' | 'pinned' | 'readingtime'
+  lightboxItem:   Item | null
   isLoading:      boolean
   settings:       AppSettings
   selectedItem:   Item | null
@@ -41,8 +42,9 @@ interface HoardStore {
   // ── Folder actions ────────────────────────────────────────────────────────
   selectFolder:  (folder: Folder | null) => Promise<void>
   reloadFolders: () => Promise<void>
-  createFolder:  (name: string, parentId?: number, smartQuery?: string) => Promise<void>
-  updateFolder:  (id: number, name: string, smartQuery?: string) => Promise<void>
+  createFolder:  (name: string, parentId?: number, smartQuery?: string, icon?: string) => Promise<void>
+  updateFolder:  (id: number, name: string, smartQuery?: string, icon?: string) => Promise<void>
+  reorderFolders:(orderedIds: number[]) => Promise<void>
   deleteFolder:  (id: number) => Promise<void>
 
   // ── Tag actions ───────────────────────────────────────────────────────────
@@ -53,8 +55,11 @@ interface HoardStore {
 
   // ── Item actions ──────────────────────────────────────────────────────────
   setSearch:        (q: string) => Promise<void>
-  setSort:          (sort: HoardStore['sortBy']) => void
-  selectType:       (type: ItemType | 'all' | 'unread') => Promise<void>
+  setSort:           (sort: HoardStore['sortBy']) => void
+  selectType:        (type: ItemType | 'all' | 'unread') => Promise<void>
+  openLightbox:      (item: Item) => void
+  closeLightbox:     () => void
+  bulkSetReadStatus: (status: 'unread' | 'read') => Promise<void>
   setReadStatus:    (id: number, status: 'unread' | 'read') => Promise<void>
   loadCounts:       () => Promise<void>
   loadFolderCounts: () => Promise<void>
@@ -80,6 +85,9 @@ interface HoardStore {
 
   // ── Archive status push ───────────────────────────────────────────────────
   updateArchiveStatus: (id: number, status: Item['archive_status'], archivePath?: string) => void
+
+  // ── Link status push ──────────────────────────────────────────────────────
+  updateLinkStatus: (id: number, status: 'ok' | 'dead' | 'unknown') => void
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -122,6 +130,7 @@ export const useStore = create<HoardStore>((set, get) => ({
   tags:           [],
   searchQuery:    '',
   sortBy:         'newest',
+  lightboxItem:   null,
   isLoading:      false,
   settings:       DEFAULT_SETTINGS,
   selectedItem:   null,
@@ -221,16 +230,26 @@ export const useStore = create<HoardStore>((set, get) => ({
     set({ items, isLoading: false })
   },
 
-  createFolder: async (name, parentId, smartQuery) => {
+  createFolder: async (name, parentId, smartQuery, icon) => {
     const vault = get().selectedVault
     if (!vault) return
-    const folder = await window.api.folders.create(vault.id, name, parentId, smartQuery)
+    const folder = await window.api.folders.create(vault.id, name, parentId, smartQuery, icon)
     set((s) => ({ folders: [...s.folders, folder] }))
   },
 
-  updateFolder: async (id, name, smartQuery) => {
-    const folder = await window.api.folders.update(id, name, smartQuery)
+  updateFolder: async (id, name, smartQuery, icon) => {
+    const folder = await window.api.folders.update(id, name, smartQuery, icon)
     set((s) => ({ folders: s.folders.map((f) => (f.id === id ? folder : f)) }))
+  },
+
+  reorderFolders: async (orderedIds) => {
+    await window.api.folders.reorder(orderedIds)
+    set((s) => {
+      const map = new Map(s.folders.map((f) => [f.id, f]))
+      const reordered = orderedIds.map((id) => map.get(id)).filter(Boolean) as Folder[]
+      const rest = s.folders.filter((f) => !orderedIds.includes(f.id))
+      return { folders: [...reordered, ...rest] }
+    })
   },
 
   deleteFolder: async (id) => {
@@ -313,13 +332,29 @@ export const useStore = create<HoardStore>((set, get) => ({
   setSort: (sort) => {
     set((s) => {
       const sorted = [...s.items]
-      if (sort === 'newest')  sorted.sort((a, b) => (b.id as number) - (a.id as number))
-      if (sort === 'oldest')  sorted.sort((a, b) => (a.id as number) - (b.id as number))
-      if (sort === 'az')      sorted.sort((a, b) => (a.title ?? '').localeCompare(b.title ?? ''))
-      if (sort === 'za')      sorted.sort((a, b) => (b.title ?? '').localeCompare(a.title ?? ''))
-      if (sort === 'pinned')  sorted.sort((a, b) => (b.is_pinned ?? 0) - (a.is_pinned ?? 0))
+      if (sort === 'newest')      sorted.sort((a, b) => b.id - a.id)
+      if (sort === 'oldest')      sorted.sort((a, b) => a.id - b.id)
+      if (sort === 'az')          sorted.sort((a, b) => (a.title ?? '').localeCompare(b.title ?? ''))
+      if (sort === 'za')          sorted.sort((a, b) => (b.title ?? '').localeCompare(a.title ?? ''))
+      if (sort === 'pinned')      sorted.sort((a, b) => (b.is_pinned ?? 0) - (a.is_pinned ?? 0))
+      if (sort === 'readingtime') sorted.sort((a, b) => (b.reading_time ?? 0) - (a.reading_time ?? 0))
       return { sortBy: sort, items: sorted }
     })
+  },
+
+  openLightbox:  (item) => set({ lightboxItem: item }),
+  closeLightbox: ()     => set({ lightboxItem: null }),
+
+  bulkSetReadStatus: async (status) => {
+    const ids = [...get().selectedIds]
+    await Promise.all(ids.map((id) => window.api.items.setReadStatus(id, status)))
+    set((s) => ({
+      items:        s.items.map((i) => ids.includes(i.id) ? { ...i, read_status: status } : i),
+      selectedItem: s.selectedItem && ids.includes(s.selectedItem.id)
+        ? { ...s.selectedItem, read_status: status }
+        : s.selectedItem,
+      selectedIds:  new Set()
+    }))
   },
 
   setSearch: async (q) => {
@@ -454,6 +489,14 @@ export const useStore = create<HoardStore>((set, get) => ({
       selectedItem: s.selectedItem?.id === id
         ? { ...s.selectedItem, archive_status: status, archive_path: archivePath ?? s.selectedItem.archive_path }
         : s.selectedItem
+    }))
+  },
+
+  // ── Link status push ───────────────────────────────────────────────────────
+  updateLinkStatus: (id, status) => {
+    set((s) => ({
+      items:        s.items.map((i) => i.id === id ? { ...i, link_status: status } : i),
+      selectedItem: s.selectedItem?.id === id ? { ...s.selectedItem, link_status: status } : s.selectedItem
     }))
   }
 }))

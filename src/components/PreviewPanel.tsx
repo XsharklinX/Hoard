@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { X, ExternalLink, Pin, Trash2, Clock, Copy, Check, Link as LinkIcon, Archive, Loader2, AlertCircle, Pencil, Files, Download, BookOpen, Circle, Sparkles, ChevronDown, ChevronUp } from 'lucide-react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
+import { X, ExternalLink, Pin, Trash2, Clock, Copy, Check, Link as LinkIcon, Archive, Loader2, AlertCircle, Pencil, Files, Download, BookOpen, Circle, Sparkles, ChevronDown, ChevronUp, Maximize2, History, RotateCcw } from 'lucide-react'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -64,7 +64,7 @@ interface PreviewPanelProps {
 }
 
 export function PreviewPanel({ onEdit }: PreviewPanelProps) {
-  const { selectedItem, pinItem, deleteItem, duplicateItem, selectItem, selectType, updateItem, settings, setReadStatus } = useStore()
+  const { selectedItem, pinItem, deleteItem, duplicateItem, selectItem, selectType, updateItem, settings, setReadStatus, openLightbox } = useStore()
   const t = useT()
   const [copied, setCopied]           = useState(false)
   const [faviconError, setFaviconError] = useState(false)
@@ -75,6 +75,9 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
   const [aiLoading,   setAiLoading]   = useState(false)
   const [aiError,     setAiError]     = useState<string | null>(null)
   const [aiExpanded,  setAiExpanded]  = useState(true)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [versions,    setVersions]    = useState<Array<{ id: number; created_at: number }>>([])
+  const editCountRef = useRef(0)
 
   if (!selectedItem) return null
   const item = selectedItem
@@ -85,6 +88,8 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
     setIsEditing(false)
     setAiSummary(null)
     setAiError(null)
+    setHistoryOpen(false)
+    editCountRef.current = 0
   }, [item.id])
 
   const handleSummarize = async () => {
@@ -116,9 +121,30 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
   }
 
   const handleSaveEdit = async (content: string) => {
-    if (content !== item.content) await updateItem(item.id, { content })
+    if (content !== item.content) {
+      editCountRef.current++
+      // Save a snapshot every 10 edits
+      if (editCountRef.current % 10 === 0) {
+        window.api.items.versionSave(item.id, item.content ?? '').catch(console.error)
+      }
+      await updateItem(item.id, { content })
+    }
     setIsEditing(false)
   }
+
+  const handleOpenHistory = useCallback(async () => {
+    const list = await window.api.items.versionsList(item.id)
+    setVersions(list)
+    setHistoryOpen(true)
+  }, [item.id])
+
+  const handleRestoreVersion = useCallback(async (versionId: number) => {
+    const v = await window.api.items.versionGet(versionId)
+    if (!v) return
+    await updateItem(item.id, { content: v.content })
+    setHistoryOpen(false)
+    toast.success('Version restored')
+  }, [item.id, updateItem])
 
   const handlePin    = async () => {
     await pinItem(item.id, item.is_pinned === 0)
@@ -138,7 +164,7 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
   }
 
   return (
-    <aside className="flex flex-col w-80 shrink-0 border-l border-border bg-surface overflow-hidden">
+    <aside className="relative flex flex-col w-80 shrink-0 border-l border-border bg-surface overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-1.5">
@@ -197,6 +223,13 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
               </button>
             </Tip>
           )}
+          {item.type === 'note' && (
+            <Tip label="Version history">
+              <button onClick={handleOpenHistory} className="p-1.5 rounded-lg text-text-muted hover:bg-card hover:text-text-primary transition-colors">
+                <History className="w-3.5 h-3.5" />
+              </button>
+            </Tip>
+          )}
           {onEdit && (
             <Tip label={t.editItem}>
               <button onClick={() => onEdit(item)} className="p-1.5 rounded-lg text-text-muted hover:bg-card hover:text-gold transition-colors">
@@ -227,17 +260,51 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
         </div>
       </div>
 
+      {/* Version history drawer */}
+      {historyOpen && (
+        <div className="absolute inset-0 z-20 bg-surface flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <span className="text-sm font-semibold text-text-primary">Version History</span>
+            <button onClick={() => setHistoryOpen(false)} className="p-1.5 rounded-lg text-text-muted hover:bg-card hover:text-text-primary transition-colors">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
+            {versions.length === 0 ? (
+              <p className="text-xs text-text-muted text-center py-8">No saved snapshots yet.<br />Snapshots are saved every 10 edits.</p>
+            ) : (
+              versions.map((v) => (
+                <div key={v.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-card border border-border hover:border-gold/30 group transition-colors">
+                  <span className="text-xs text-text-secondary">{new Date(v.created_at * 1000).toLocaleString()}</span>
+                  <button
+                    onClick={() => handleRestoreVersion(v.id)}
+                    className="flex items-center gap-1 text-xs text-text-muted hover:text-gold transition-colors opacity-0 group-hover:opacity-100"
+                  >
+                    <RotateCcw className="w-3 h-3" />Restore
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
         {/* Image preview */}
         {item.type === 'image' && !imgError && (item.image_path || item.url?.startsWith('http')) && (
-          <img
-            src={item.image_path ? toFileUrl(item.image_path) : item.url!}
-            alt={item.title ?? ''}
-            loading="lazy"
-            className="w-full rounded-xl object-contain max-h-64 bg-card"
-            onError={() => setImgError(true)}
-          />
+          <div className="relative group cursor-zoom-in" onClick={() => openLightbox(item)}>
+            <img
+              src={item.image_path ? toFileUrl(item.image_path) : item.url!}
+              alt={item.title ?? ''}
+              loading="lazy"
+              className="w-full rounded-xl object-contain max-h-64 bg-card"
+              onError={() => setImgError(true)}
+            />
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30 rounded-xl">
+              <Maximize2 className="w-6 h-6 text-white drop-shadow" />
+            </div>
+          </div>
         )}
 
         {/* Title + meta */}
@@ -329,11 +396,16 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
         {item.type === 'code' && item.content && (
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
-              {item.code_lang && (
-                <span className="text-[10px] text-text-muted font-mono uppercase tracking-wider">
-                  {LANG_LABEL[item.code_lang] ?? item.code_lang}
+              <div className="flex items-center gap-2">
+                {item.code_lang && (
+                  <span className="text-[10px] text-text-muted font-mono uppercase tracking-wider">
+                    {LANG_LABEL[item.code_lang] ?? item.code_lang}
+                  </span>
+                )}
+                <span className="text-[10px] text-text-muted/60">
+                  {item.content.split('\n').length} lines
                 </span>
-              )}
+              </div>
               <Tip label={copied ? t.codeCopied : t.copyCode}>
                 <button onClick={handleCopy} className="flex items-center gap-1 text-[10px] text-text-muted hover:text-gold transition-colors ml-auto">
                   {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}

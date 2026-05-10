@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, Trash2, Archive, Settings, Tag, Link as LinkIcon, FileText, Image as ImageIcon, Code, Sparkles, Pencil, Circle } from 'lucide-react'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import * as ContextMenu from '@radix-ui/react-context-menu'
@@ -20,8 +20,13 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
   const {
     vaults, selectedVault, folders, selectedFolder, selectedTag, selectedType, itemCounts, folderCounts,
     tags, selectVault, selectFolder, selectTag, selectType, deleteVault, deleteFolder, deleteTag,
-    updateVault, updateFolder
+    updateVault, updateFolder, reorderFolders, items
   } = useStore()
+
+  const unreadReadingTime = useMemo(() => {
+    if (selectedType !== 'unread') return 0
+    return items.reduce((sum, i) => sum + (i.type === 'link' ? (i.reading_time ?? 0) : 0), 0)
+  }, [items, selectedType])
   const t = useT()
 
   const [expandedFolders, setExpandedFolders] = useState<Set<number>>(new Set())
@@ -87,7 +92,7 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
     }
   }
 
-  const renderTypeFilter = (type: 'all' | 'link' | 'note' | 'image' | 'code' | 'unread', icon: React.ReactNode, label: string, count?: number) => {
+  const renderTypeFilter = (type: 'all' | 'link' | 'note' | 'image' | 'code' | 'unread', icon: React.ReactNode, label: string, count?: number, badge?: string) => {
     const isSelected = selectedType === type && !selectedFolder && !selectedTag
     return (
       <div
@@ -98,7 +103,10 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
         onClick={() => selectType(type)}
       >
         <div className="flex items-center gap-2">{icon}<span>{label}</span></div>
-        {count != null && <span className="text-xs text-text-muted">{count}</span>}
+        <div className="flex items-center gap-1.5">
+          {badge && <span className="text-[10px] text-sky-400/70">{badge}</span>}
+          {count != null && <span className="text-xs text-text-muted">{count}</span>}
+        </div>
       </div>
     )
   }
@@ -228,7 +236,7 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
             {/* Types */}
             <div className="flex flex-col gap-0.5">
               {renderTypeFilter('all',    <Archive   className="w-3.5 h-3.5 shrink-0" />, t.allItems, itemCounts.all)}
-              {renderTypeFilter('unread', <Circle    className="w-3.5 h-3.5 shrink-0 text-sky-400 fill-sky-400/40" />, 'Unread')}
+              {renderTypeFilter('unread', <Circle    className="w-3.5 h-3.5 shrink-0 text-sky-400 fill-sky-400/40" />, 'Unread', undefined, unreadReadingTime > 0 ? `~${Math.ceil(unreadReadingTime / 60)}m` : undefined)}
               {renderTypeFilter('link',   <LinkIcon  className="w-3.5 h-3.5 shrink-0" />, 'Links',    itemCounts.link)}
               {renderTypeFilter('note',   <FileText  className="w-3.5 h-3.5 shrink-0" />, 'Notes',    itemCounts.note)}
               {renderTypeFilter('image',  <ImageIcon className="w-3.5 h-3.5 shrink-0" />, 'Images',   itemCounts.image)}
@@ -245,26 +253,24 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
                   </button>
                 </Tip>
               </div>
-              {rootFolders.map((folder) => (
-                <FolderNode
-                  key={folder.id}
-                  folder={folder}
-                  children={childFolders(folder.id)}
-                  allFolders={folders}
-                  selected={selectedFolder}
-                  expanded={expandedFolders}
-                  folderCounts={folderCounts}
-                  renameId={renameFolderId}
-                  renameValue={renameValue}
-                  onRenameChange={setRenameValue}
-                  onRenameStart={startRenameFolder}
-                  onRenameCommit={commitRenameFolder}
-                  onRenameCancel={() => setRenameFolderId(null)}
-                  onSelect={(f) => { selectFolder(f) }}
-                  onToggle={toggleFolder}
-                  onDelete={handleDeleteFolder}
-                />
-              ))}
+              <DraggableFolderList
+                folders={rootFolders}
+                childFolders={childFolders}
+                allFolders={folders}
+                selected={selectedFolder}
+                expanded={expandedFolders}
+                folderCounts={folderCounts}
+                renameId={renameFolderId}
+                renameValue={renameValue}
+                onRenameChange={setRenameValue}
+                onRenameStart={startRenameFolder}
+                onRenameCommit={commitRenameFolder}
+                onRenameCancel={() => setRenameFolderId(null)}
+                onSelect={(f) => { selectFolder(f) }}
+                onToggle={toggleFolder}
+                onDelete={handleDeleteFolder}
+                onReorder={reorderFolders}
+              />
               {folders.length === 0 && (
                 <p className="text-[11px] text-text-muted mt-1 px-2">{t.noFolders}</p>
               )}
@@ -399,10 +405,13 @@ function FolderNode({
             ) : (
               <span className="w-3 shrink-0" />
             )}
-            {folder.smart_query
-              ? <Sparkles className="w-3.5 h-3.5 shrink-0 text-gold" />
-              : (isSelected || isDragOver ? <FolderOpen className="w-3.5 h-3.5 shrink-0" /> : <Folder className="w-3.5 h-3.5 shrink-0" />)
-            }
+            {folder.icon ? (
+              <span className="text-sm shrink-0 leading-none">{folder.icon}</span>
+            ) : folder.smart_query ? (
+              <Sparkles className="w-3.5 h-3.5 shrink-0 text-gold" />
+            ) : (
+              isSelected || isDragOver ? <FolderOpen className="w-3.5 h-3.5 shrink-0" /> : <Folder className="w-3.5 h-3.5 shrink-0" />
+            )}
             {isRenaming ? (
               <input
                 autoFocus
@@ -489,6 +498,94 @@ function FolderNode({
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Draggable folder list ──────────────────────────────────────────────────────
+
+interface DraggableFolderListProps {
+  folders:        FolderType[]
+  childFolders:   (parentId: number) => FolderType[]
+  allFolders:     FolderType[]
+  selected:       FolderType | null
+  expanded:       Set<number>
+  folderCounts:   Record<number, number>
+  renameId:       number | null
+  renameValue:    string
+  onRenameChange: (v: string) => void
+  onRenameStart:  (f: FolderType) => void
+  onRenameCommit: (f: FolderType) => void
+  onRenameCancel: () => void
+  onSelect:       (f: FolderType) => void
+  onToggle:       (id: number) => void
+  onDelete:       (e: React.MouseEvent, f: FolderType) => void
+  onReorder:      (orderedIds: number[]) => void
+}
+
+function DraggableFolderList(props: DraggableFolderListProps) {
+  const { folders, onReorder, childFolders, ...nodeProps } = props
+  const [order, setOrder] = useState<number[]>(folders.map((f) => f.id))
+  const [draggingId, setDraggingId] = useState<number | null>(null)
+  const [overIdx, setOverIdx] = useState<number | null>(null)
+
+  // Keep order in sync if folders change externally
+  useEffect(() => {
+    setOrder(folders.map((f) => f.id))
+  }, [folders.map((f) => f.id).join(',')])
+
+  const orderedFolders = order.map((id) => folders.find((f) => f.id === id)).filter(Boolean) as FolderType[]
+
+  const handleDragStart = (id: number) => setDraggingId(id)
+
+  const handleDragOver = (e: React.DragEvent, idx: number) => {
+    // Only handle folder reorder drags (no item-id data)
+    if (e.dataTransfer.types.includes('hoard/item-id')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setOverIdx(idx)
+  }
+
+  const handleDrop = (e: React.DragEvent, toIdx: number) => {
+    if (draggingId === null || e.dataTransfer.types.includes('hoard/item-id')) return
+    e.preventDefault()
+    const fromIdx = order.indexOf(draggingId)
+    if (fromIdx === -1 || fromIdx === toIdx) { setDraggingId(null); setOverIdx(null); return }
+    const next = [...order]
+    next.splice(fromIdx, 1)
+    next.splice(toIdx, 0, draggingId)
+    setOrder(next)
+    onReorder(next)
+    setDraggingId(null)
+    setOverIdx(null)
+  }
+
+  const handleDragEnd = () => { setDraggingId(null); setOverIdx(null) }
+
+  return (
+    <div>
+      {orderedFolders.map((folder, idx) => (
+        <div
+          key={folder.id}
+          draggable
+          onDragStart={(e) => { e.dataTransfer.setData('hoard/folder-id', folder.id.toString()); handleDragStart(folder.id) }}
+          onDragOver={(e) => handleDragOver(e, idx)}
+          onDrop={(e) => handleDrop(e, idx)}
+          onDragEnd={handleDragEnd}
+          className={cn(
+            'rounded transition-colors',
+            overIdx === idx && draggingId !== folder.id && 'ring-1 ring-gold/40 bg-gold/5',
+            draggingId === folder.id && 'opacity-50'
+          )}
+        >
+          <FolderNode
+            folder={folder}
+            children={childFolders(folder.id)}
+            {...nodeProps}
+            allFolders={nodeProps.allFolders}
+          />
+        </div>
+      ))}
     </div>
   )
 }

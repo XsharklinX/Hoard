@@ -8,14 +8,55 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({ id: 'hoard-save-selection', title: 'Save Selection to Hoard',       contexts: ['selection'] })
 })
 
-// Read selected vault from persistent storage
-async function getSelectedVaultId() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['selectedVaultId'], (result) => {
-      resolve(result.selectedVaultId || null)
-    })
-  })
+// ── Persistent storage helpers ─────────────────────────────────────────────────
+
+function storageGet(keys) {
+  return new Promise((resolve) => chrome.storage.local.get(keys, resolve))
 }
+function storageSet(obj) {
+  return new Promise((resolve) => chrome.storage.local.set(obj, resolve))
+}
+
+async function getSelectedVaultId() {
+  const r = await storageGet(['selectedVaultId'])
+  return r.selectedVaultId || null
+}
+
+// ── Daily badge counter ────────────────────────────────────────────────────────
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10)  // 'YYYY-MM-DD'
+}
+
+async function incrementDailyCount() {
+  const { dailyCount = 0, dailyDate = '' } = await storageGet(['dailyCount', 'dailyDate'])
+  const today = todayKey()
+  const next  = dailyDate === today ? dailyCount + 1 : 1
+  await storageSet({ dailyCount: next, dailyDate: today })
+  return next
+}
+
+async function refreshBadge() {
+  const { dailyCount = 0, dailyDate = '' } = await storageGet(['dailyCount', 'dailyDate'])
+  const today = todayKey()
+  if (dailyDate !== today) {
+    chrome.action?.setBadgeText({ text: '' })
+    return
+  }
+  if (dailyCount > 0) {
+    const label = dailyCount >= 100 ? '99+' : String(dailyCount)
+    chrome.action?.setBadgeText({ text: label })
+    chrome.action?.setBadgeBackgroundColor({ color: '#c9952a' })
+  } else {
+    chrome.action?.setBadgeText({ text: '' })
+  }
+}
+
+// Restore badge on startup/install
+chrome.runtime.onStartup?.addListener(refreshBadge)
+chrome.runtime.onInstalled.addListener(refreshBadge)
+
+// ── Core save ─────────────────────────────────────────────────────────────────
 
 async function sendToHoard(payload) {
   const vaultId = await getSelectedVaultId()
@@ -29,9 +70,22 @@ async function sendToHoard(payload) {
     })
 
     if (response.ok) {
-      chrome.action?.setBadgeText({ text: '✓' })
+      const count = await incrementDailyCount()
+      const label = count >= 100 ? '99+' : String(count)
+      chrome.action?.setBadgeText({ text: label })
       chrome.action?.setBadgeBackgroundColor({ color: '#c9952a' })
-      setTimeout(() => chrome.action?.setBadgeText({ text: '' }), 2000)
+      // Flash a ✓ tick for 2 s, then restore the count
+      chrome.action?.setBadgeText({ text: '✓' })
+      chrome.action?.setBadgeBackgroundColor({ color: '#34d399' })
+      setTimeout(async () => {
+        const { dailyCount: c = 0, dailyDate: d = '' } = await storageGet(['dailyCount', 'dailyDate'])
+        if (d === todayKey() && c > 0) {
+          chrome.action?.setBadgeText({ text: c >= 100 ? '99+' : String(c) })
+          chrome.action?.setBadgeBackgroundColor({ color: '#c9952a' })
+        } else {
+          chrome.action?.setBadgeText({ text: '' })
+        }
+      }, 2000)
     } else {
       console.error('Hoard server error:', response.statusText)
     }
@@ -40,7 +94,17 @@ async function sendToHoard(payload) {
   }
 }
 
-// ── Omnibox — "hoard <query>" in the address bar ─────────────────────────────
+// ── Quick Capture keyboard command ─────────────────────────────────────────────
+
+chrome.commands?.onCommand.addListener(async (command) => {
+  if (command !== 'quick-capture') return
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  if (!tab?.url || !tab.url.startsWith('http')) return
+  await sendToHoard({ type: 'link', url: tab.url, title: tab.title || tab.url })
+})
+
+// ── Omnibox ───────────────────────────────────────────────────────────────────
+
 chrome.omnibox?.onInputChanged.addListener(async (text, suggest) => {
   if (!text.trim()) return
   try {
@@ -72,6 +136,8 @@ function escapeXml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+// ── Context menus ──────────────────────────────────────────────────────────────
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === 'hoard-save-page') {
     await sendToHoard({ type: 'link', url: info.pageUrl, title: tab?.title || info.pageUrl })
@@ -97,16 +163,29 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 })
 
 // ── Message from content script (selection bubble click) ─────────────────────
+
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.action !== 'hoard:save-selection') return
-  const text    = msg.text || ''
-  const pageUrl = msg.pageUrl || ''
+  const text      = msg.text    || ''
+  const pageUrl   = msg.pageUrl || ''
   const pageTitle = msg.pageTitle || pageUrl
+  const codeLang  = msg.codeLang || null
+  const isCode    = msg.isCode   || false
 
   const snippet = text.slice(0, 80) + (text.length > 80 ? '…' : '')
-  sendToHoard({
-    type:    'note',
-    content: `${text}\n\n— [${pageTitle}](${pageUrl})`,
-    title:   snippet
-  })
+
+  if (isCode) {
+    sendToHoard({
+      type:    'code',
+      content: text,
+      title:   snippet,
+      codeLang
+    })
+  } else {
+    sendToHoard({
+      type:    'note',
+      content: `${text}\n\n— [${pageTitle}](${pageUrl})`,
+      title:   snippet
+    })
+  }
 })

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, FileText, Image, Pin, Trash2, ExternalLink, Clock, Code, Check, Pencil, Copy, Download } from 'lucide-react'
+import { Link, FileText, Image, Pin, Trash2, ExternalLink, Clock, Code, Check, Pencil, Copy, Download, Maximize2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import * as ContextMenu from '@radix-ui/react-context-menu'
 import { useStore } from '../store'
@@ -26,7 +26,7 @@ const TYPE_COLOR = {
 }
 
 export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
-  const { pinItem, deleteItem, duplicateItem, selectItem, selectedItem, settings, selectedIds, toggleSelect, setReadStatus } = useStore()
+  const { pinItem, deleteItem, duplicateItem, selectItem, selectedItem, settings, selectedIds, toggleSelect, setReadStatus, openLightbox } = useStore()
   const t = useT()
   const [faviconError, setFaviconError] = useState(false)
   const [imgError,     setImgError]     = useState(false)
@@ -193,6 +193,7 @@ export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
                 </div>
               )}
               <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 backdrop-blur p-1 rounded-lg">
+                <button onClick={(e) => { e.stopPropagation(); openLightbox(item) }} className="p-1.5 rounded-md hover:bg-white/10 text-white transition-colors" title="Full screen"><Maximize2 className="w-3.5 h-3.5" /></button>
                 <button onClick={(e) => handleDownloadImage(e)} className="p-1.5 rounded-md hover:bg-white/10 text-white transition-colors" title="Download"><Download className="w-3.5 h-3.5" /></button>
                 <button onClick={(e) => handlePin(e)} className={cn('p-1.5 rounded-md hover:bg-white/10 transition-colors', item.is_pinned ? 'text-gold' : 'text-white')} title={item.is_pinned ? 'Unpin' : 'Pin'}><Pin className="w-3.5 h-3.5" /></button>
                 <button onClick={(e) => handleDelete(e)} className="p-1.5 rounded-md hover:bg-red-500/20 text-white hover:text-red-400 transition-colors" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
@@ -343,7 +344,12 @@ export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
           onClick={handleClick}
         >
           <SelectionDot />
-          {isUnread && <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-sky-400 z-10 pointer-events-none" />}
+          {isUnread && item.link_status !== 'dead' && <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-sky-400 z-10 pointer-events-none" />}
+          {item.link_status === 'dead' && (
+            <span className="absolute top-2.5 right-2.5 z-10 text-[9px] font-semibold bg-red-500/15 text-red-400 border border-red-500/30 rounded-full px-1.5 py-0.5 pointer-events-none">
+              dead link
+            </span>
+          )}
           <div className="flex items-center justify-between mb-2.5">
             <div className="flex items-center gap-2 min-w-0">
               <div className="shrink-0 w-6 h-6 rounded-md overflow-hidden bg-background border border-border/50 flex items-center justify-center">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Search, Plus, X, Trash2, MoveRight, CheckSquare, Square, ArrowUpDown, CalendarDays, Download, Tag, LayoutGrid, List } from 'lucide-react'
+import { Search, Plus, X, Trash2, MoveRight, CheckSquare, Square, ArrowUpDown, CalendarDays, Download, Tag, LayoutGrid, List, Globe, BookOpen, CheckCheck } from 'lucide-react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Popover from '@radix-ui/react-popover'
 import * as Tooltip from '@radix-ui/react-tooltip'
@@ -22,13 +22,14 @@ const CARD_HEIGHT  = 140
 const COLS_DEFAULT = 4
 const COLS_COMPACT = 5
 
-type SortKey = 'newest' | 'oldest' | 'az' | 'za' | 'pinned'
+type SortKey = 'newest' | 'oldest' | 'az' | 'za' | 'pinned' | 'readingtime'
 const SORT_LABELS: Record<SortKey, string> = {
-  newest: 'Newest first',
-  oldest: 'Oldest first',
-  az:     'A → Z',
-  za:     'Z → A',
-  pinned: 'Pinned first'
+  newest:      'Newest first',
+  oldest:      'Oldest first',
+  az:          'A → Z',
+  za:          'Z → A',
+  pinned:      'Pinned first',
+  readingtime: 'Reading time'
 }
 
 // ── Debounced search ─────────────────────────────────────────────────────────
@@ -46,7 +47,7 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
     items, searchQuery, setSearch, setSort, sortBy,
     isLoading, selectedVault, selectedFolder,
     selectedTag, settings, updateSettings, selectedIds, selectAll, clearSelection,
-    deleteSelected, selectedType, selectedItem, selectItem, tags
+    deleteSelected, selectedType, selectedItem, selectItem, tags, bulkSetReadStatus
   } = useStore()
   const t = useT()
   const scrollParentRef = useRef<HTMLDivElement>(null)
@@ -58,21 +59,49 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
 
   // Date filter
   type DateFilter = 'all' | 'week' | 'month' | 'year'
-  const [dateFilter, setDateFilter] = useState<DateFilter>('all')
+  const [dateFilter,    setDateFilter]    = useState<DateFilter>('all')
+  const [domainFilter,  setDomainFilter]  = useState<string>('all')
+  const [archiveFilter, setArchiveFilter] = useState<'all' | 'pending' | 'done' | 'failed'>('all')
+
   const DATE_LABELS: Record<DateFilter, string> = {
     all: t.dateFilterAll, week: t.dateFilterWeek, month: t.dateFilterMonth, year: t.dateFilterYear
   }
 
+  // Unique domains from link items
+  const availableDomains = useMemo(() => {
+    const domains = new Set<string>()
+    items.forEach((i) => {
+      if (i.type === 'link' && i.url) {
+        try { domains.add(new URL(i.url).hostname.replace(/^www\./, '')) } catch { /* skip */ }
+      }
+    })
+    return [...domains].sort()
+  }, [items])
+
   const filteredItems = useMemo(() => {
-    if (dateFilter === 'all') return items
-    const now = Date.now()
-    const cutoff = {
-      week:  now - 7  * 24 * 60 * 60 * 1000,
-      month: now - 30 * 24 * 60 * 60 * 1000,
-      year:  now - 365 * 24 * 60 * 60 * 1000,
-    }[dateFilter]
-    return items.filter((item) => item.created_at * 1000 >= cutoff)
-  }, [items, dateFilter])
+    let list = items
+    if (dateFilter !== 'all') {
+      const now = Date.now()
+      const cutoff = { week: now - 7*86400000, month: now - 30*86400000, year: now - 365*86400000 }[dateFilter]
+      list = list.filter((i) => i.created_at * 1000 >= cutoff)
+    }
+    if (domainFilter !== 'all') {
+      list = list.filter((i) => {
+        if (!i.url) return false
+        try { return new URL(i.url).hostname.replace(/^www\./, '') === domainFilter } catch { return false }
+      })
+    }
+    if (archiveFilter !== 'all') {
+      list = list.filter((i) => i.archive_status === archiveFilter)
+    }
+    return list
+  }, [items, dateFilter, domainFilter, archiveFilter])
+
+  // Unread reading time (for banner when selectedType === 'unread')
+  const unreadReadingTime = useMemo(() => {
+    if (selectedType !== 'unread') return 0
+    return filteredItems.reduce((sum, i) => sum + (i.type === 'link' ? (i.reading_time ?? 0) : 0), 0)
+  }, [filteredItems, selectedType])
 
   useEffect(() => { setSearch(debouncedSearch) }, [debouncedSearch])
   useEffect(() => { setLocalSearch(searchQuery) }, [searchQuery]) // sync on external clear
@@ -278,28 +307,82 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
               </button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
-              <DropdownMenu.Content
-                align="end" sideOffset={6}
-                className="z-[300] min-w-[150px] bg-surface border border-border rounded-xl shadow-2xl py-1.5 overflow-hidden"
-              >
+              <DropdownMenu.Content align="end" sideOffset={6} className="z-[300] min-w-[150px] bg-surface border border-border rounded-xl shadow-2xl py-1.5 overflow-hidden">
                 {(Object.entries(DATE_LABELS) as [DateFilter, string][]).map(([key, label]) => (
-                  <DropdownMenu.Item
-                    key={key}
-                    onSelect={() => setDateFilter(key)}
-                    className={cn(
-                      'flex items-center justify-between gap-2 px-3 py-1.5 text-xs cursor-pointer outline-none transition-colors',
-                      dateFilter === key
-                        ? 'text-gold bg-gold/5'
-                        : 'text-text-secondary hover:bg-card hover:text-text-primary'
-                    )}
-                  >
-                    {label}
-                    {dateFilter === key && <span className="text-gold text-[10px]">✓</span>}
+                  <DropdownMenu.Item key={key} onSelect={() => setDateFilter(key)}
+                    className={cn('flex items-center justify-between gap-2 px-3 py-1.5 text-xs cursor-pointer outline-none transition-colors',
+                      dateFilter === key ? 'text-gold bg-gold/5' : 'text-text-secondary hover:bg-card hover:text-text-primary')}>
+                    {label}{dateFilter === key && <span className="text-gold text-[10px]">✓</span>}
                   </DropdownMenu.Item>
                 ))}
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
+
+          {/* Domain filter — only when there are link items */}
+          {availableDomains.length > 0 && (
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border transition-colors',
+                  domainFilter !== 'all'
+                    ? 'bg-gold/10 border-gold/30 text-gold'
+                    : 'bg-card border-border text-text-muted hover:text-text-primary hover:border-border'
+                )}>
+                  <Globe className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline max-w-[80px] truncate">
+                    {domainFilter === 'all' ? 'Domain' : domainFilter}
+                  </span>
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content align="end" sideOffset={6} className="z-[300] min-w-[180px] max-h-64 overflow-y-auto bg-surface border border-border rounded-xl shadow-2xl py-1.5 overflow-hidden">
+                  <DropdownMenu.Item onSelect={() => setDomainFilter('all')}
+                    className={cn('flex items-center justify-between gap-2 px-3 py-1.5 text-xs cursor-pointer outline-none transition-colors',
+                      domainFilter === 'all' ? 'text-gold bg-gold/5' : 'text-text-secondary hover:bg-card hover:text-text-primary')}>
+                    All domains{domainFilter === 'all' && <span className="text-gold text-[10px]">✓</span>}
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Separator className="my-1 h-px bg-border" />
+                  {availableDomains.map((d) => (
+                    <DropdownMenu.Item key={d} onSelect={() => setDomainFilter(d)}
+                      className={cn('flex items-center justify-between gap-2 px-3 py-1.5 text-xs cursor-pointer outline-none transition-colors',
+                        domainFilter === d ? 'text-gold bg-gold/5' : 'text-text-secondary hover:bg-card hover:text-text-primary')}>
+                      <span className="truncate">{d}</span>
+                      {domainFilter === d && <span className="text-gold text-[10px] shrink-0">✓</span>}
+                    </DropdownMenu.Item>
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          )}
+
+          {/* Archive status filter */}
+          {items.some((i) => i.archive_status) && (
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border transition-colors',
+                  archiveFilter !== 'all'
+                    ? 'bg-gold/10 border-gold/30 text-gold'
+                    : 'bg-card border-border text-text-muted hover:text-text-primary hover:border-border'
+                )}>
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline capitalize">{archiveFilter === 'all' ? 'Archive' : archiveFilter}</span>
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content align="end" sideOffset={6} className="z-[300] min-w-[140px] bg-surface border border-border rounded-xl shadow-2xl py-1.5 overflow-hidden">
+                  {(['all', 'done', 'pending', 'failed'] as const).map((v) => (
+                    <DropdownMenu.Item key={v} onSelect={() => setArchiveFilter(v)}
+                      className={cn('flex items-center justify-between gap-2 px-3 py-1.5 text-xs cursor-pointer outline-none transition-colors capitalize',
+                        archiveFilter === v ? 'text-gold bg-gold/5' : 'text-text-secondary hover:bg-card hover:text-text-primary')}>
+                      {v === 'all' ? 'All' : v}{archiveFilter === v && <span className="text-gold text-[10px]">✓</span>}
+                    </DropdownMenu.Item>
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          )}
 
           {/* Search */}
           <div className="relative">
@@ -424,6 +507,13 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
                 </Popover.Portal>
               </Popover.Root>
               <button
+                onClick={() => bulkSetReadStatus(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-card border border-border text-text-secondary hover:text-text-primary transition-colors"
+              >
+                <CheckCheck className="w-3.5 h-3.5" />
+                Mark read
+              </button>
+              <button
                 onClick={onMoveItems}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-card border border-border text-text-secondary hover:text-text-primary transition-colors"
               >
@@ -444,6 +534,21 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Unread reading time banner */}
+        {selectedType === 'unread' && unreadReadingTime > 0 && (
+          <div className="flex items-center gap-2 px-6 py-2 bg-surface border-b border-border shrink-0">
+            <BookOpen className="w-3.5 h-3.5 text-text-muted" />
+            <span className="text-xs text-text-secondary">
+              ~{Math.ceil(unreadReadingTime / 60)} min to read
+            </span>
+            {filteredItems.filter((i) => i.type === 'link').length > 0 && (
+              <span className="text-xs text-text-muted">
+                · {filteredItems.filter((i) => i.type === 'link').length} articles
+              </span>
+            )}
           </div>
         )}
 
