@@ -21,7 +21,7 @@ interface HoardStore {
   settings:       AppSettings
   selectedItem:   Item | null
   selectedType:   ItemType | 'all' | 'unread'
-  itemCounts:     { all: number, link: number, note: number, image: number, code: number }
+  itemCounts:     { all: number, link: number, note: number, image: number, code: number, quote: number, file: number }
   folderCounts:   Record<number, number>
 
   // ── Multi-select ──────────────────────────────────────────────────────────
@@ -144,7 +144,7 @@ export const useStore = create<HoardStore>((set, get) => ({
   settings:       DEFAULT_SETTINGS,
   selectedItem:   null,
   selectedType:   'all',
-  itemCounts:     { all: 0, link: 0, note: 0, image: 0, code: 0 },
+  itemCounts:     { all: 0, link: 0, note: 0, image: 0, code: 0, quote: 0, file: 0 },
   folderCounts:   {},
   selectedIds:    new Set(),
   autoSummaries:  {},

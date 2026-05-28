@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link, FileText, Image, Code, X, Loader2, Plus, Eye, Edit3, ChevronDown, AlertTriangle } from 'lucide-react'
+import { Link, FileText, Image, Code, X, Loader2, Plus, Eye, Edit3, ChevronDown, AlertTriangle, Quote, Paperclip } from 'lucide-react'
 import type { Item } from '../types'
 import ReactMarkdown from 'react-markdown'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import type { ItemType } from '../types'
-import { cn } from '../lib/utils'
+import { cn, formatBytes } from '../lib/utils'
 import { TagSelector } from './TagSelector'
 import { NOTE_TEMPLATES } from '../lib/templates'
 
@@ -27,12 +27,16 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
   const t = useT()
 
   const [type, setType]         = useState<ItemType>(initialType ?? settings.defaultItemType)
-  const [url, setUrl]           = useState('')
-  const [title, setTitle]       = useState('')
-  const [content, setContent]   = useState('')
-  const [imagePath, setImagePath] = useState('')
-  const [codeLang, setCodeLang] = useState('javascript')
-  const [tagIds, setTagIds]     = useState<number[]>([])
+  const [url, setUrl]               = useState('')
+  const [title, setTitle]           = useState('')
+  const [content, setContent]       = useState('')
+  const [imagePath, setImagePath]   = useState('')
+  const [codeLang, setCodeLang]     = useState('javascript')
+  const [attribution, setAttribution] = useState('')
+  const [filePath, setFilePath]     = useState('')
+  const [fileSize, setFileSize]     = useState(0)
+  const [fileMime, setFileMime]     = useState('')
+  const [tagIds, setTagIds]         = useState<number[]>([])
   const [fetching,   setFetching]   = useState(false)
   const [saving,     setSaving]     = useState(false)
   const [notePreview, setNotePreview] = useState(false)
@@ -44,7 +48,9 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
   useEffect(() => {
     if (open) {
       setType(initialType ?? settings.defaultItemType)
-      setUrl(''); setTitle(''); setContent(''); setImagePath(''); setTagIds([])
+      setUrl(''); setTitle(''); setContent(''); setImagePath('')
+      setAttribution(''); setFilePath(''); setFileSize(0); setFileMime('')
+      setTagIds([])
       setDuplicateItem(null)
       setTimeout(() => (type === 'link' ? urlRef : titleRef).current?.focus(), 50)
     }
@@ -79,11 +85,23 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
     if (!title) setTitle((filePath.split(/[\\/]/).pop() ?? 'Image').replace(/\.[^.]+$/, ''))
   }
 
+  const handlePickFile = async () => {
+    const picked = await window.api.util.openFileDialog()
+    if (!picked) return
+    const { storedPath, size, mime } = await window.api.util.saveFile(picked)
+    setFilePath(storedPath)
+    setFileSize(size)
+    setFileMime(mime)
+    if (!title) setTitle(picked.split(/[\\/]/).pop() ?? 'File')
+  }
+
   const canSave = () => {
     if (type === 'link')  return url.trim().length > 0
     if (type === 'note')  return content.trim().length > 0 || title.trim().length > 0
     if (type === 'image') return imagePath.length > 0
     if (type === 'code')  return content.trim().length > 0
+    if (type === 'quote') return content.trim().length > 0
+    if (type === 'file')  return filePath.length > 0
     return false
   }
 
@@ -95,13 +113,17 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
     setSaving(true)
     try {
       await createItem({
-        folderId: selectedFolder?.id ?? null,
+        folderId:    selectedFolder?.id ?? null,
         type,
-        title:    title.trim() || undefined,
-        content:  content.trim() || undefined,
-        url:      url.trim() || undefined,
-        imagePath: imagePath || undefined,
-        codeLang: type === 'code' ? codeLang : undefined,
+        title:       title.trim() || undefined,
+        content:     content.trim() || undefined,
+        url:         url.trim() || undefined,
+        imagePath:   imagePath || undefined,
+        codeLang:    type === 'code' ? codeLang : undefined,
+        attribution: type === 'quote' ? attribution.trim() || undefined : undefined,
+        filePath:    type === 'file' ? filePath || undefined : undefined,
+        fileSize:    type === 'file' ? fileSize || undefined : undefined,
+        fileMime:    type === 'file' ? fileMime || undefined : undefined,
         tagIds
       })
       onClose()
@@ -121,7 +143,9 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
     { value: 'link',  label: t.link,  Icon: Link },
     { value: 'note',  label: t.note,  Icon: FileText },
     { value: 'image', label: t.image, Icon: Image },
-    { value: 'code',  label: t.code,  Icon: Code }
+    { value: 'code',  label: t.code,  Icon: Code },
+    { value: 'quote', label: 'Quote', Icon: Quote },
+    { value: 'file',  label: 'File',  Icon: Paperclip }
   ]
 
   return (
@@ -217,6 +241,33 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
             </button>
           )}
 
+          {/* File picker */}
+          {type === 'file' && (
+            <button
+              onClick={handlePickFile}
+              className={cn(
+                'w-full py-8 rounded-xl border-2 border-dashed text-sm transition-colors',
+                filePath
+                  ? 'border-gold/40 text-gold'
+                  : 'border-border text-text-muted hover:border-gold/30 hover:text-text-secondary'
+              )}
+            >
+              {filePath ? (
+                <div className="flex flex-col items-center gap-1.5">
+                  <Paperclip className="w-6 h-6 mx-auto" />
+                  <span className="text-xs font-medium">{title || filePath.split(/[\\/]/).pop()}</span>
+                  {fileSize > 0 && <span className="text-[11px] text-text-muted">{formatBytes(fileSize)}</span>}
+                  <span className="text-[10px] text-text-muted">Click to change</span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-1">
+                  <Paperclip className="w-6 h-6 mx-auto mb-1" />
+                  <span>Click to attach a file</span>
+                </div>
+              )}
+            </button>
+          )}
+
           {/* Code language selector */}
           {type === 'code' && (
             <div>
@@ -243,8 +294,35 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
             className="input"
           />
 
+          {/* Quote fields */}
+          {type === 'quote' && (
+            <>
+              <textarea
+                placeholder="Paste the quote text here…"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                rows={5}
+                className="input resize-none italic"
+              />
+              <input
+                type="text"
+                placeholder="Attribution (author, book, etc.)"
+                value={attribution}
+                onChange={(e) => setAttribution(e.target.value)}
+                className="input"
+              />
+              <input
+                type="url"
+                placeholder="Source URL (optional)"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                className="input"
+              />
+            </>
+          )}
+
           {/* Content / note / code */}
-          {type !== 'image' && (
+          {type !== 'image' && type !== 'quote' && (
             type === 'note' ? (
               <div className="flex flex-col gap-1.5">
                 {/* Note toolbar: Write/Preview + Templates */}

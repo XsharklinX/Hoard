@@ -6,6 +6,8 @@ import http from 'http'
 import { URL } from 'url'
 import updaterPkg from 'electron-updater'
 const { autoUpdater } = updaterPkg
+import { JSDOM } from 'jsdom'
+import { Readability } from '@mozilla/readability'
 import { vaultQueries, folderQueries, itemQueries, tagQueries, getImagesDir, CreateItemData,
          initDb, enableEncryption, disableEncryption, verifyPassword, hasEncryptedDb, isEncryptionEnabled,
          versionQueries, getUncheckedLinks, setLinkStatus } from './db'
@@ -193,6 +195,57 @@ export function registerHandlers(): void {
       try { fs.copyFileSync(src, dest); copied++ } catch { /* skip */ }
     }
     return { success: true, copied, folder: destDir }
+  })
+
+  // ── File item handlers ────────────────────────────────────────────────────────
+  ipcMain.handle('util:open-file-dialog', async () => {
+    const result = await dialog.showOpenDialog({ properties: ['openFile'] })
+    if (result.canceled || !result.filePaths.length) return null
+    return result.filePaths[0]
+  })
+
+  ipcMain.handle('util:save-file', async (_e, srcPath: string) => {
+    const filesDir = path.join(app.getPath('userData'), 'hoard-files')
+    if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true })
+    const ext   = path.extname(srcPath)
+    const dest  = path.join(filesDir, `${Date.now()}${ext}`)
+    fs.copyFileSync(srcPath, dest)
+    const stat  = fs.statSync(dest)
+    const ext2  = ext.toLowerCase().slice(1)
+    const MIMES: Record<string, string> = {
+      pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown',
+      doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      zip: 'application/zip', mp3: 'audio/mpeg', mp4: 'video/mp4',
+      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', svg: 'image/svg+xml'
+    }
+    const mime  = MIMES[ext2] ?? 'application/octet-stream'
+    return { storedPath: dest, size: stat.size, mime }
+  })
+
+  ipcMain.handle('util:open-file', (_e, storedPath: string) => {
+    shell.openPath(storedPath)
+  })
+
+  // ── Reader (Readability) ────────────────────────────────────────────────────
+  ipcMain.handle('util:extract-reader', async (_e, archivePath: string) => {
+    try {
+      let html = fs.readFileSync(archivePath, 'utf-8')
+      // Strip MHTML headers if present
+      if (html.startsWith('MIME-Version:') || html.startsWith('Content-Type: multipart')) {
+        const bodyMatch = html.match(/Content-Type: text\/html[\s\S]*?\r?\n\r?\n([\s\S]+)/i)
+        if (bodyMatch) html = bodyMatch[1]
+      }
+      const dom = new JSDOM(html, { url: 'https://localhost' })
+      const reader = new Readability(dom.window.document)
+      const article = reader.parse()
+      if (!article) return null
+      return { title: article.title, content: article.content }
+    } catch (err) {
+      console.error('Readability extraction failed:', err)
+      return null
+    }
   })
 
   // ── Bookmarks import ────────────────────────────────────────────────────────

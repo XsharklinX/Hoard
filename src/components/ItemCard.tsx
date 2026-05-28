@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, FileText, Image, Pin, Trash2, ExternalLink, Clock, Code, Check, Pencil, Copy, Download, Maximize2 } from 'lucide-react'
+import { Link, FileText, Image, Pin, Trash2, ExternalLink, Clock, Code, Check, Pencil, Copy, Download, Maximize2, Quote, Paperclip } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import * as ContextMenu from '@radix-ui/react-context-menu'
 import { useStore } from '../store'
@@ -7,7 +7,7 @@ import { useT } from '../i18n'
 import { confirm } from '../lib/confirm'
 import { toast } from '../lib/toast'
 import type { Item } from '../types'
-import { cn, formatDate, formatRelativeDate, truncate, toFileUrl, getDomain } from '../lib/utils'
+import { cn, formatDate, formatRelativeDate, truncate, toFileUrl, getDomain, formatBytes } from '../lib/utils'
 
 interface ItemCardProps {
   item:      Item
@@ -17,12 +17,14 @@ interface ItemCardProps {
   onEdit?:   () => void
 }
 
-const TYPE_ICON  = { link: Link, note: FileText, image: Image, code: Code }
+const TYPE_ICON  = { link: Link, note: FileText, image: Image, code: Code, quote: Quote, file: Paperclip }
 const TYPE_COLOR = {
   link:  'text-sky-400 bg-sky-400/10',
   note:  'text-emerald-400 bg-emerald-400/10',
   image: 'text-violet-400 bg-violet-400/10',
-  code:  'text-amber-400 bg-amber-400/10'
+  code:  'text-amber-400 bg-amber-400/10',
+  quote: 'text-pink-400 bg-pink-400/10',
+  file:  'text-orange-400 bg-orange-400/10'
 }
 
 export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
@@ -263,6 +265,93 @@ export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
                 <button onClick={(e) => handleDelete(e)} className="p-1.5 rounded-md hover:bg-border text-text-muted hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
             </div>
+          </div>
+        </ContextMenu.Trigger>
+        {contextMenuContent}
+      </ContextMenu.Root>
+    )
+  }
+
+  // ── QUOTE TYPE ───────────────────────────────────────────────────────────
+  if (item.type === 'quote') {
+    return (
+      <ContextMenu.Root>
+        <ContextMenu.Trigger asChild>
+          <div
+            draggable
+            onDragStart={handleDragStart}
+            className={cn(
+              'group relative flex flex-col p-4 rounded-xl transition-all cursor-pointer border border-transparent',
+              focused   && 'ring-2 ring-gold/60',
+              isChecked ? 'bg-card border-gold/40 ring-1 ring-gold/30' :
+              isSelected ? 'bg-card border-border shadow-sm' :
+              'hover:bg-card/50 hover:border-border/50'
+            )}
+            onClick={handleClick}
+          >
+            <SelectionDot />
+            {item.is_pinned === 1 && <Pin className="absolute top-4 right-4 w-3.5 h-3.5 text-gold/70" />}
+            <Quote className="w-5 h-5 text-pink-400/50 mb-2 shrink-0" />
+            <p className="text-sm text-text-primary italic leading-relaxed line-clamp-4">{item.content}</p>
+            {item.attribution && (
+              <p className="text-xs text-text-muted mt-2 font-medium">— {item.attribution}</p>
+            )}
+            <div className="flex items-center justify-between mt-4">
+              <div className="flex items-center gap-3 text-xs text-text-muted font-medium">
+                <span className="flex items-center gap-1.5"><Quote className="w-3.5 h-3.5 text-pink-400" />Quote</span>
+                <span>•</span>
+                <span>{formatRelativeDate(item.created_at)}</span>
+              </div>
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={(e) => handlePin(e)} className={cn('p-1.5 rounded-md hover:bg-border transition-colors', item.is_pinned ? 'text-gold' : 'text-text-muted hover:text-gold')}><Pin className="w-3.5 h-3.5" /></button>
+                <button onClick={(e) => handleDelete(e)} className="p-1.5 rounded-md hover:bg-border text-text-muted hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+            </div>
+          </div>
+        </ContextMenu.Trigger>
+        {contextMenuContent}
+      </ContextMenu.Root>
+    )
+  }
+
+  // ── FILE TYPE ─────────────────────────────────────────────────────────────
+  if (item.type === 'file') {
+    return (
+      <ContextMenu.Root>
+        <ContextMenu.Trigger asChild>
+          <div
+            draggable
+            onDragStart={handleDragStart}
+            className={cn(
+              'group relative flex items-center gap-3 p-4 rounded-xl transition-all cursor-pointer border border-transparent',
+              focused   && 'ring-2 ring-gold/60',
+              isChecked ? 'bg-card border-gold/40 ring-1 ring-gold/30' :
+              isSelected ? 'bg-card border-border shadow-sm' :
+              'hover:bg-card/50 hover:border-border/50'
+            )}
+            onClick={handleClick}
+          >
+            <SelectionDot />
+            <div className="w-10 h-10 rounded-xl bg-orange-400/10 border border-orange-400/20 flex items-center justify-center shrink-0">
+              <Paperclip className="w-5 h-5 text-orange-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-text-primary truncate">{item.title || 'File'}</p>
+              <div className="flex items-center gap-2 text-xs text-text-muted mt-0.5">
+                {item.file_mime && <span>{item.file_mime.split('/')[1]?.toUpperCase() ?? 'FILE'}</span>}
+                {item.file_size && <><span>•</span><span>{formatBytes(item.file_size)}</span></>}
+                <span>•</span>
+                <span>{formatRelativeDate(item.created_at)}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {item.file_path && (
+                <button onClick={(e) => { e.stopPropagation(); window.api.util.openFile(item.file_path!) }} className="p-1.5 rounded-md hover:bg-border text-text-muted hover:text-text-primary transition-colors" title="Open file"><ExternalLink className="w-3.5 h-3.5" /></button>
+              )}
+              <button onClick={(e) => handlePin(e)} className={cn('p-1.5 rounded-md hover:bg-border transition-colors', item.is_pinned ? 'text-gold' : 'text-text-muted hover:text-gold')}><Pin className="w-3.5 h-3.5" /></button>
+              <button onClick={(e) => handleDelete(e)} className="p-1.5 rounded-md hover:bg-border text-text-muted hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+            </div>
+            {item.is_pinned === 1 && <Pin className="absolute top-2 right-2 w-3 h-3 text-gold/70" />}
           </div>
         </ContextMenu.Trigger>
         {contextMenuContent}

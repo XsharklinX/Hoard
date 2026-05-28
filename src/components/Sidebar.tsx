@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react'
-import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, Trash2, Archive, Settings, Tag, Link as LinkIcon, FileText, Image as ImageIcon, Code, Sparkles, Pencil, Circle } from 'lucide-react'
+import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, Trash2, Archive, Settings, Tag, Link as LinkIcon, FileText, Image as ImageIcon, Code, Sparkles, Pencil, Circle, Quote, Paperclip } from 'lucide-react'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import * as ContextMenu from '@radix-ui/react-context-menu'
 import { useStore } from '../store'
@@ -245,10 +245,12 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
             <div className="flex flex-col gap-0.5">
               {renderTypeFilter('all',    <Archive   className="w-3.5 h-3.5 shrink-0" />, t.allItems, itemCounts.all)}
               {renderTypeFilter('unread', <Circle    className="w-3.5 h-3.5 shrink-0 text-sky-400 fill-sky-400/40" />, 'Unread', undefined, unreadReadingTime > 0 ? `~${Math.ceil(unreadReadingTime / 60)}m` : undefined)}
-              {renderTypeFilter('link',   <LinkIcon  className="w-3.5 h-3.5 shrink-0" />, 'Links',    itemCounts.link)}
-              {renderTypeFilter('note',   <FileText  className="w-3.5 h-3.5 shrink-0" />, 'Notes',    itemCounts.note)}
-              {renderTypeFilter('image',  <ImageIcon className="w-3.5 h-3.5 shrink-0" />, 'Images',   itemCounts.image)}
-              {renderTypeFilter('code',   <Code      className="w-3.5 h-3.5 shrink-0" />, 'Code',     itemCounts.code)}
+              {renderTypeFilter('link',   <LinkIcon   className="w-3.5 h-3.5 shrink-0" />, 'Links',    itemCounts.link)}
+              {renderTypeFilter('note',   <FileText   className="w-3.5 h-3.5 shrink-0" />, 'Notes',    itemCounts.note)}
+              {renderTypeFilter('image',  <ImageIcon  className="w-3.5 h-3.5 shrink-0" />, 'Images',   itemCounts.image)}
+              {renderTypeFilter('code',   <Code       className="w-3.5 h-3.5 shrink-0" />, 'Code',     itemCounts.code)}
+              {itemCounts.quote > 0 && renderTypeFilter('quote', <Quote     className="w-3.5 h-3.5 shrink-0" />, 'Quotes',   itemCounts.quote)}
+              {itemCounts.file  > 0 && renderTypeFilter('file',  <Paperclip className="w-3.5 h-3.5 shrink-0" />, 'Files',    itemCounts.file)}
             </div>
 
             {/* Folders */}

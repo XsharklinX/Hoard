@@ -61,7 +61,7 @@ export interface Item {
   id: number
   vault_id: number
   folder_id: number | null
-  type: 'link' | 'note' | 'image' | 'code'
+  type: 'link' | 'note' | 'image' | 'code' | 'quote' | 'file'
   title: string | null
   content: string | null
   url: string | null
@@ -74,6 +74,10 @@ export interface Item {
   link_status: 'ok' | 'dead' | 'unknown' | null
   read_status: 'unread' | 'read'
   is_pinned: 0 | 1
+  attribution: string | null
+  file_path: string | null
+  file_size: number | null
+  file_mime: string | null
   created_at: number
   updated_at: number
   tags: Tag[]
@@ -82,7 +86,7 @@ export interface Item {
 export interface CreateItemData {
   vaultId: number
   folderId?: number | null
-  type: 'link' | 'note' | 'image' | 'code'
+  type: 'link' | 'note' | 'image' | 'code' | 'quote' | 'file'
   title?: string
   content?: string
   url?: string
@@ -94,6 +98,10 @@ export interface CreateItemData {
   readStatus?: 'unread' | 'read'
   archiveStatus?: 'pending' | 'done' | 'failed'
   archivePath?: string
+  attribution?: string
+  filePath?: string
+  fileSize?: number
+  fileMime?: string
 }
 
 export interface UrlMetadata {
@@ -130,7 +138,7 @@ declare global {
         delete:  (id: number) => Promise<void>
       }
       items: {
-        counts:       (vaultId: number) => Promise<{ all: number, link: number, note: number, image: number, code: number }>
+        counts:       (vaultId: number) => Promise<{ all: number, link: number, note: number, image: number, code: number, quote: number, file: number }>
         list:         (params: { vaultId: number; folderId?: number | null; search?: string; tagId?: number | null; type?: ItemType | null; readStatus?: string | null }) => Promise<Item[]>
         create:       (data: CreateItemData) => Promise<Item>
         update:       (id: number, data: Partial<CreateItemData>) => Promise<Item>
@@ -164,12 +172,16 @@ declare global {
         chooseBackupDir: () => Promise<string | null>
       }
       util: {
-        fetchMetadata: (url: string) => Promise<UrlMetadata>
-        saveImage: (filePath: string) => Promise<string>
+        fetchMetadata:   (url: string) => Promise<UrlMetadata>
+        saveImage:       (filePath: string) => Promise<string>
         openImageDialog: () => Promise<string | null>
-        openUrl:      (url: string)        => Promise<void>
-        exportImage:  (srcPath: string)    => Promise<{ success?: boolean; cancelled?: boolean; filePath?: string }>
-        exportImages: (srcPaths: string[]) => Promise<{ success?: boolean; cancelled?: boolean; copied?: number; folder?: string }>
+        openUrl:         (url: string) => Promise<void>
+        exportImage:     (srcPath: string) => Promise<{ success?: boolean; cancelled?: boolean; filePath?: string }>
+        exportImages:    (srcPaths: string[]) => Promise<{ success?: boolean; cancelled?: boolean; copied?: number; folder?: string }>
+        openFileDialog:  () => Promise<string | null>
+        saveFile:        (filePath: string) => Promise<{ storedPath: string; size: number; mime: string }>
+        openFile:        (storedPath: string) => Promise<void>
+        extractReader:   (archivePath: string) => Promise<{ title: string; content: string } | null>
       }
       bookmarks: {
         import: (vaultId: number) => Promise<{ count: number; cancelled?: boolean }>

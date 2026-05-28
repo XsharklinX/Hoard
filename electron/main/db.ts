@@ -159,6 +159,52 @@ const MIGRATIONS: Array<{ version: number; up: () => void }> = [
         created_at INTEGER DEFAULT (strftime('%s','now'))
       )`)
     }
+  },
+  {
+    // Rebuild items table to add 'quote' and 'file' types + attribution/file columns
+    version: 9,
+    up: () => {
+      const tableSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='items'").get() as any)?.sql || ''
+      if (tableSql.includes("'quote'")) return
+      run('PRAGMA foreign_keys = OFF')
+      db.transaction(() => {
+        run(`CREATE TABLE items_new (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          vault_id       INTEGER NOT NULL REFERENCES vaults(id)  ON DELETE CASCADE,
+          folder_id      INTEGER          REFERENCES folders(id) ON DELETE SET NULL,
+          type           TEXT    NOT NULL CHECK(type IN ('link','note','image','code','quote','file')),
+          title          TEXT,
+          content        TEXT,
+          url            TEXT,
+          image_path     TEXT,
+          favicon        TEXT,
+          reading_time   INTEGER,
+          code_lang      TEXT,
+          archive_path   TEXT,
+          archive_status TEXT CHECK(archive_status IN ('pending','done','failed')),
+          link_status    TEXT CHECK(link_status IN ('ok','dead','unknown')),
+          read_status    TEXT NOT NULL DEFAULT 'unread' CHECK(read_status IN ('unread','read')),
+          is_pinned      INTEGER NOT NULL DEFAULT 0,
+          attribution    TEXT,
+          file_path      TEXT,
+          file_size      INTEGER,
+          file_mime      TEXT,
+          created_at     INTEGER DEFAULT (strftime('%s','now')),
+          updated_at     INTEGER DEFAULT (strftime('%s','now'))
+        )`)
+        run(`INSERT INTO items_new
+               (id, vault_id, folder_id, type, title, content, url, image_path,
+                favicon, reading_time, code_lang, archive_path, archive_status, link_status,
+                read_status, is_pinned, created_at, updated_at)
+             SELECT id, vault_id, folder_id, type, title, content, url, image_path,
+                    favicon, reading_time, code_lang, archive_path, archive_status, link_status,
+                    read_status, is_pinned, created_at, updated_at
+             FROM items`)
+        run('DROP TABLE items')
+        run('ALTER TABLE items_new RENAME TO items')
+      })()
+      run('PRAGMA foreign_keys = ON')
+    }
   }
 ]
 
@@ -334,7 +380,7 @@ export const folderQueries = {
 export interface CreateItemData {
   vaultId: number
   folderId?: number | null
-  type: 'link' | 'note' | 'image' | 'code'
+  type: 'link' | 'note' | 'image' | 'code' | 'quote' | 'file'
   title?: string
   content?: string
   url?: string
@@ -346,6 +392,10 @@ export interface CreateItemData {
   archiveStatus?: 'pending' | 'done' | 'failed' | null
   readStatus?: 'unread' | 'read'
   tagIds?: number[]
+  attribution?: string
+  filePath?: string
+  fileSize?: number
+  fileMime?: string
 }
 
 function getTagsForItem(itemId: number) {
@@ -369,7 +419,7 @@ export const itemQueries = {
       [vaultId]
     )
     const allCount = (db.prepare(`SELECT COUNT(*) c FROM items WHERE vault_id=${vaultId}`).get() as any).c
-    const result = { all: allCount, link: 0, note: 0, image: 0, code: 0 }
+    const result = { all: allCount, link: 0, note: 0, image: 0, code: 0, quote: 0, file: 0 }
     for (const row of rows) {
       if (row.type in result) result[row.type as keyof typeof result] = row.count
     }
@@ -457,8 +507,8 @@ export const itemQueries = {
   create: (data: CreateItemData) => {
     const row = insertReturning(
       'items',
-      `INSERT INTO items (vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, archive_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO items (vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, archive_path, attribution, file_path, file_size, file_mime)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.vaultId,
         data.folderId ?? null,
@@ -470,7 +520,11 @@ export const itemQueries = {
         data.favicon ?? null,
         data.readingTime ?? null,
         data.codeLang ?? null,
-        data.archivePath ?? null
+        data.archivePath ?? null,
+        data.attribution ?? null,
+        data.filePath ?? null,
+        data.fileSize ?? null,
+        data.fileMime ?? null
       ]
     ) as { id: number }
 
@@ -508,6 +562,10 @@ export const itemQueries = {
       fields.push('link_status=?')
       values.push((data as any).linkStatus)
     }
+    if (data.attribution !== undefined) { fields.push('attribution=?'); values.push(data.attribution) }
+    if (data.filePath    !== undefined) { fields.push('file_path=?');   values.push(data.filePath) }
+    if (data.fileSize    !== undefined) { fields.push('file_size=?');   values.push(data.fileSize) }
+    if (data.fileMime    !== undefined) { fields.push('file_mime=?');   values.push(data.fileMime) }
 
     if (fields.length) {
       fields.push("updated_at=strftime('%s','now')")
@@ -555,9 +613,10 @@ export const itemQueries = {
     
     let newId: number = 0
     db.transaction(() => {
-      const info = db.prepare(`INSERT INTO items (vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, archive_path)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-        [src.vault_id, src.folder_id, src.type, newTitle, src.content, src.url, src.image_path, src.favicon, src.reading_time, src.code_lang, null]
+      const info = db.prepare(`INSERT INTO items (vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, archive_path, attribution, file_path, file_size, file_mime)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        [src.vault_id, src.folder_id, src.type, newTitle, src.content, src.url, src.image_path, src.favicon, src.reading_time, src.code_lang, null,
+         src.attribution, src.file_path, src.file_size, src.file_mime]
       )
       newId = Number(info.lastInsertRowid)
       const insertTag = db.prepare('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)')

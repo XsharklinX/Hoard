@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
-import { X, ExternalLink, Pin, Trash2, Clock, Copy, Check, Link as LinkIcon, Archive, Loader2, AlertCircle, Pencil, Files, Download, BookOpen, Circle, Sparkles, ChevronDown, ChevronUp, Maximize2, History, RotateCcw } from 'lucide-react'
+import { X, ExternalLink, Pin, Trash2, Clock, Copy, Check, Link as LinkIcon, Archive, Loader2, AlertCircle, Pencil, Files, Download, BookOpen, Circle, Sparkles, ChevronDown, ChevronUp, Maximize2, History, RotateCcw, Quote, Paperclip, BookOpenText } from 'lucide-react'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -44,11 +44,12 @@ SyntaxHighlighter.registerLanguage('swift',      swift)
 SyntaxHighlighter.registerLanguage('kotlin',     kotlin)
 import { useStore } from '../store'
 import { useT } from '../i18n'
-import { formatDate, formatRelativeDate, cn, toFileUrl, getDomain } from '../lib/utils'
+import { formatDate, formatRelativeDate, formatBytes, cn, toFileUrl, getDomain } from '../lib/utils'
 import { confirm } from '../lib/confirm'
 import { toast } from '../lib/toast'
 import { NoteEditor } from './NoteEditor'
 import { TagSelector } from './TagSelector'
+import { CodeEditor } from './CodeEditor'
 import type { Item } from '../types'
 
 const LANG_LABEL: Record<string, string> = {
@@ -78,9 +79,13 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
   const [aiLoading,   setAiLoading]   = useState(false)
   const [aiError,     setAiError]     = useState<string | null>(null)
   const [aiExpanded,  setAiExpanded]  = useState(true)
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const [versions,    setVersions]    = useState<Array<{ id: number; created_at: number }>>([])
-  const [saveStatus,  setSaveStatus]  = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [historyOpen,    setHistoryOpen]    = useState(false)
+  const [versions,       setVersions]       = useState<Array<{ id: number; created_at: number }>>([])
+  const [saveStatus,     setSaveStatus]     = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [readerContent,  setReaderContent]  = useState<{ title: string; content: string } | null>(null)
+  const [readerLoading,  setReaderLoading]  = useState(false)
+  const [readerMode,     setReaderMode]     = useState(false)
+  const [editAttrib,     setEditAttrib]     = useState('')
   const editCountRef = useRef(0)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -100,6 +105,8 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
     setAiError(null)
     setHistoryOpen(false)
     setSaveStatus('idle')
+    setReaderContent(null)
+    setReaderMode(false)
     editCountRef.current = 0
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
   }, [item.id])
@@ -189,6 +196,17 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
     setTimeout(() => setCopied(false), 1800)
   }
 
+  const handleReaderMode = async () => {
+    if (readerMode) { setReaderMode(false); return }
+    if (readerContent) { setReaderMode(true); return }
+    if (!item.archive_path) return
+    setReaderLoading(true)
+    const result = await window.api.util.extractReader(item.archive_path)
+    setReaderLoading(false)
+    if (result) { setReaderContent(result); setReaderMode(true) }
+    else toast.error('Could not extract readable content from archive')
+  }
+
   return (
     <aside className="relative flex flex-col w-80 shrink-0 border-l border-border bg-surface overflow-hidden">
       {/* Header */}
@@ -221,16 +239,27 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
               </button>
             </Tip>
           )}
-          {/* Reader mode button — only for archived links */}
+          {/* Reader mode — inline readability for archived links */}
           {item.type === 'link' && item.archive_status === 'done' && item.archive_path && (
-            <Tip label="Open in Reader">
-              <button
-                onClick={() => window.api.items.openReader(item.archive_path!, item.title || 'Article')}
-                className="p-1.5 rounded-lg text-text-muted hover:bg-card hover:text-emerald-400 transition-colors"
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-              </button>
-            </Tip>
+            <>
+              <Tip label={readerMode ? 'Exit reader' : 'Reader mode'}>
+                <button
+                  onClick={handleReaderMode}
+                  disabled={readerLoading}
+                  className={cn('p-1.5 rounded-lg transition-colors', readerMode ? 'text-emerald-400 bg-emerald-400/10' : 'text-text-muted hover:bg-card hover:text-emerald-400')}
+                >
+                  {readerLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BookOpenText className="w-3.5 h-3.5" />}
+                </button>
+              </Tip>
+              <Tip label="Open archive">
+                <button
+                  onClick={() => window.api.items.openReader(item.archive_path!, item.title || 'Article')}
+                  className="p-1.5 rounded-lg text-text-muted hover:bg-card hover:text-sky-400 transition-colors"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                </button>
+              </Tip>
+            </>
           )}
           {item.type === 'image' && (item.image_path || item.url?.startsWith('http')) && (
             <Tip label={t.downloadImage}>
@@ -453,6 +482,102 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
           <p className="text-xs text-text-secondary leading-relaxed">{item.content}</p>
         )}
 
+        {/* Reader mode content */}
+        {item.type === 'link' && readerMode && readerContent && (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 pb-2 border-b border-border">
+              <BookOpenText className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-xs text-emerald-400 font-medium">Reader mode</span>
+            </div>
+            <div
+              className="prose prose-invert prose-xs max-w-none text-sm leading-relaxed reader-content"
+              dangerouslySetInnerHTML={{ __html: readerContent.content }}
+            />
+          </div>
+        )}
+
+        {/* Quote content */}
+        {item.type === 'quote' && (
+          <div className="flex flex-col gap-3">
+            <div className="relative pl-4 border-l-2 border-pink-400/50">
+              <Quote className="absolute -left-1 -top-1 w-4 h-4 text-pink-400/40" />
+              {isEditing ? (
+                <textarea
+                  autoFocus
+                  className="w-full bg-transparent text-sm italic text-text-primary outline-none resize-none leading-relaxed"
+                  value={editContent}
+                  rows={4}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  onBlur={async () => { await updateItem(item.id, { content: editContent }); setIsEditing(false) }}
+                  onKeyDown={(e) => { if (e.key === 'Escape') setIsEditing(false) }}
+                />
+              ) : (
+                <p
+                  className="text-sm italic text-text-primary leading-relaxed cursor-text hover:text-gold/90 transition-colors"
+                  onDoubleClick={() => { setEditContent(item.content ?? ''); setIsEditing(true) }}
+                  title="Double click to edit"
+                >
+                  {item.content}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {editAttrib !== '' || item.attribution ? (
+                <input
+                  className="flex-1 text-xs text-text-muted bg-transparent border-b border-border/50 outline-none py-0.5 placeholder-text-muted/50 focus:border-gold/40"
+                  placeholder="— Attribution"
+                  defaultValue={item.attribution ?? ''}
+                  onBlur={async (e) => {
+                    await updateItem(item.id, { attribution: e.target.value })
+                    setEditAttrib('')
+                  }}
+                />
+              ) : (
+                <button
+                  onClick={() => setEditAttrib('editing')}
+                  className="text-xs text-text-muted hover:text-text-secondary transition-colors"
+                >
+                  {item.attribution ? `— ${item.attribution}` : '+ Add attribution'}
+                </button>
+              )}
+            </div>
+            {item.url && (
+              <button
+                onClick={() => window.api.util.openUrl(item.url!)}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border text-xs text-blue-400 hover:text-blue-300 hover:border-blue-400/30 transition-colors text-left"
+              >
+                <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">{item.url}</span>
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* File content */}
+        {item.type === 'file' && (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-4 p-4 rounded-xl bg-card border border-border">
+              <div className="w-12 h-12 rounded-xl bg-orange-400/10 border border-orange-400/20 flex items-center justify-center shrink-0">
+                <Paperclip className="w-6 h-6 text-orange-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-text-primary truncate">{item.title || 'File'}</p>
+                {item.file_mime && <p className="text-xs text-text-muted">{item.file_mime}</p>}
+                {item.file_size && <p className="text-xs text-text-muted">{formatBytes(item.file_size)}</p>}
+              </div>
+            </div>
+            {item.file_path && (
+              <button
+                onClick={() => window.api.util.openFile(item.file_path!)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-orange-400/10 border border-orange-400/20 text-orange-400 text-sm font-medium hover:bg-orange-400/20 transition-colors"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Open with system
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Code */}
         {item.type === 'code' && item.content && (
           <div className="flex flex-col gap-1.5">
@@ -474,24 +599,28 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
                 </button>
               </Tip>
             </div>
-            {isEditing ? (
-              <textarea
-                autoFocus
-                className="w-full h-48 bg-black/40 font-mono text-[11px] text-text-primary p-3 rounded-lg border border-gold/50 focus:outline-none focus:ring-1 focus:ring-gold/50 resize-y"
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                onBlur={async () => { await updateItem(item.id, { content: editContent }); setIsEditing(false) }}
-                onKeyDown={(e) => { if (e.key === 'Escape') setIsEditing(false) }}
+            <div
+              onDoubleClick={() => { if (!isEditing) { setEditContent(item.content!); setIsEditing(true) } }}
+              className={cn('rounded-lg overflow-hidden text-[11px] cursor-text ring-1 transition-shadow', isEditing ? 'ring-gold/50' : 'ring-border/50 hover:ring-gold/30')}
+              title={isEditing ? '' : 'Double click to edit'}
+            >
+              <CodeEditor
+                value={isEditing ? editContent : item.content}
+                onChange={isEditing ? setEditContent : undefined}
+                language={item.code_lang}
+                readOnly={!isEditing}
+                minHeight="160px"
               />
-            ) : (
-              <div
-                onDoubleClick={() => { setEditContent(item.content!); setIsEditing(true) }}
-                className="rounded-lg overflow-hidden text-[11px] cursor-text ring-1 ring-border/50 hover:ring-gold/30 transition-shadow"
-                title="Double click to edit"
-              >
-                <SyntaxHighlighter language={item.code_lang || 'javascript'} style={vscDarkPlus} customStyle={{ margin: 0, padding: '12px', background: 'rgba(0,0,0,0.3)' }} wrapLongLines>
-                  {item.content}
-                </SyntaxHighlighter>
+            </div>
+            {isEditing && (
+              <div className="flex items-center justify-end gap-2 text-[10px]">
+                <button onClick={() => setIsEditing(false)} className="text-text-muted hover:text-text-secondary transition-colors">Cancel</button>
+                <button
+                  onClick={async () => { await updateItem(item.id, { content: editContent }); setIsEditing(false) }}
+                  className="text-gold hover:text-gold/80 font-medium transition-colors"
+                >
+                  Save
+                </button>
               </div>
             )}
           </div>
@@ -545,11 +674,17 @@ function TypeBadge({ type, lang }: { type: Item['type']; lang: string | null }) 
     link:  'text-blue-400 bg-blue-400/10',
     note:  'text-emerald-400 bg-emerald-400/10',
     image: 'text-purple-400 bg-purple-400/10',
-    code:  'text-amber-400 bg-amber-400/10'
+    code:  'text-amber-400 bg-amber-400/10',
+    quote: 'text-pink-400 bg-pink-400/10',
+    file:  'text-orange-400 bg-orange-400/10'
   }
   const labels: Record<Item['type'], string> = {
-    link: 'Link', note: 'Note', image: 'Image',
-    code: lang ? (LANG_LABEL[lang] ?? lang) : 'Code'
+    link:  'Link',
+    note:  'Note',
+    image: 'Image',
+    code:  lang ? (LANG_LABEL[lang] ?? lang) : 'Code',
+    quote: 'Quote',
+    file:  'File'
   }
   return (
     <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider', colors[type])}>
