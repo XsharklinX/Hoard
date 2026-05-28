@@ -66,6 +66,18 @@ contextBridge.exposeInMainWorld('api', {
     extractReader:   (archivePath: string)  => ipcRenderer.invoke('util:extract-reader', archivePath)
   },
 
+  feeds: {
+    list:         (vaultId: number)                                  => ipcRenderer.invoke('feed:list', vaultId),
+    unreadCounts: (vaultId: number)                                  => ipcRenderer.invoke('feed:unread-counts', vaultId),
+    create:       (data: unknown)                                    => ipcRenderer.invoke('feed:create', data),
+    update:       (id: number, data: unknown)                        => ipcRenderer.invoke('feed:update', id, data),
+    delete:       (id: number)                                       => ipcRenderer.invoke('feed:delete', id),
+    refresh:      (id: number)                                       => ipcRenderer.invoke('feed:refresh', id),
+    refreshAll:   (vaultId: number)                                  => ipcRenderer.invoke('feed:refresh-all', vaultId),
+    importOpml:   (vaultId: number)                                  => ipcRenderer.invoke('feed:import-opml', vaultId),
+    exportOpml:   (vaultId: number)                                  => ipcRenderer.invoke('feed:export-opml', vaultId)
+  },
+
   bookmarks: {
     import: (vaultId: number) => ipcRenderer.invoke('bookmarks:import', vaultId)
   },

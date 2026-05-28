@@ -1,13 +1,15 @@
 import { useMemo, useState, useEffect } from 'react'
-import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, Trash2, Archive, Settings, Tag, Link as LinkIcon, FileText, Image as ImageIcon, Code, Sparkles, Pencil, Circle, Quote, Paperclip } from 'lucide-react'
+import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, Trash2, Archive, Settings, Tag, Link as LinkIcon, FileText, Image as ImageIcon, Code, Sparkles, Pencil, Circle, Quote, Paperclip, Rss, RefreshCw, AlertCircle, MoreHorizontal } from 'lucide-react'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import * as ContextMenu from '@radix-ui/react-context-menu'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { confirm } from '../lib/confirm'
 import { toast } from '../lib/toast'
-import type { Vault, Folder as FolderType } from '../types'
+import type { Vault, Folder as FolderType, Feed } from '../types'
 import { cn } from '../lib/utils'
+import { FeedModal } from './FeedModal'
 
 interface SidebarProps {
   onNewVault:  () => void
@@ -20,7 +22,8 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
   const {
     vaults, selectedVault, folders, selectedFolder, selectedTag, selectedType, itemCounts, folderCounts,
     tags, selectVault, selectFolder, selectTag, selectType, deleteVault, deleteFolder, deleteTag,
-    updateVault, updateFolder, reorderFolders, items
+    updateVault, updateFolder, reorderFolders, items,
+    feeds, selectedFeed, feedUnreadCounts, selectFeed, deleteFeed, refreshFeed, refreshAllFeeds
   } = useStore()
 
   const unreadReadingTime = useMemo(() => {
@@ -42,6 +45,9 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
   const [renameVaultId,  setRenameVaultId]  = useState<number | null>(null)
   const [renameFolderId, setRenameFolderId] = useState<number | null>(null)
   const [renameValue,    setRenameValue]    = useState('')
+  const [feedModalOpen,  setFeedModalOpen]  = useState(false)
+  const [editingFeed,    setEditingFeed]    = useState<Feed | null>(null)
+  const [refreshingAll,  setRefreshingAll]  = useState(false)
 
   const rootFolders  = folders.filter((f) => f.parent_id === null)
   const childFolders = (parentId: number) => folders.filter((f) => f.parent_id === parentId)
@@ -318,8 +324,142 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
                 </div>
               </div>
             )}
+
+            {/* Feeds */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] uppercase tracking-widest text-text-muted font-semibold flex items-center gap-1.5">
+                  <Rss className="w-3 h-3 text-orange-400" />Feeds
+                </span>
+                <div className="flex items-center gap-0.5">
+                  <Tip label="Refresh all feeds">
+                    <button
+                      onClick={async () => { setRefreshingAll(true); await refreshAllFeeds().catch(() => {}); setRefreshingAll(false) }}
+                      disabled={refreshingAll}
+                      className="p-0.5 rounded hover:bg-card text-text-muted hover:text-text-primary transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className={cn('w-3.5 h-3.5', refreshingAll && 'animate-spin')} />
+                    </button>
+                  </Tip>
+                  <DropdownMenu.Root>
+                    <DropdownMenu.Trigger asChild>
+                      <button className="p-0.5 rounded hover:bg-card text-text-muted hover:text-text-primary transition-colors">
+                        <MoreHorizontal className="w-3.5 h-3.5" />
+                      </button>
+                    </DropdownMenu.Trigger>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content align="end" sideOffset={4} className="z-[300] min-w-[160px] bg-surface border border-border rounded-xl shadow-2xl py-1.5">
+                        <DropdownMenu.Item
+                          onSelect={() => { setEditingFeed(null); setFeedModalOpen(true) }}
+                          className="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer outline-none text-text-secondary hover:bg-card hover:text-text-primary transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" />Add feed
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                          onSelect={async () => { if (selectedVault) { const r = await window.api.feeds.importOpml(selectedVault.id); if (!r.cancelled) { await useStore.getState().loadFeeds(); toast.success(`Imported ${r.count} feeds`) } } }}
+                          className="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer outline-none text-text-secondary hover:bg-card hover:text-text-primary transition-colors"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />Import OPML
+                        </DropdownMenu.Item>
+                        {feeds.length > 0 && (
+                          <DropdownMenu.Item
+                            onSelect={async () => { if (selectedVault) { await window.api.feeds.exportOpml(selectedVault.id) } }}
+                            className="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer outline-none text-text-secondary hover:bg-card hover:text-text-primary transition-colors"
+                          >
+                            <Archive className="w-3.5 h-3.5" />Export OPML
+                          </DropdownMenu.Item>
+                        )}
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu.Root>
+                </div>
+              </div>
+
+              {feeds.length === 0 ? (
+                <button
+                  onClick={() => { setEditingFeed(null); setFeedModalOpen(true) }}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border border-dashed border-border text-xs text-text-muted hover:border-orange-400/40 hover:text-orange-400 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />Add your first feed
+                </button>
+              ) : (
+                <div className="flex flex-col gap-0.5">
+                  {feeds.map((feed) => {
+                    const unread   = feedUnreadCounts[feed.id] ?? 0
+                    const hasError = feed.error_count > 2
+                    return (
+                      <ContextMenu.Root key={feed.id}>
+                        <ContextMenu.Trigger asChild>
+                          <div
+                            className={cn(
+                              'group flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer transition-colors text-sm',
+                              selectedFeed?.id === feed.id
+                                ? 'bg-orange-400/10 text-orange-400'
+                                : 'text-text-secondary hover:bg-card hover:text-text-primary'
+                            )}
+                            onClick={() => selectFeed(selectedFeed?.id === feed.id ? null : feed)}
+                          >
+                            {feed.favicon ? (
+                              <img src={feed.favicon} alt="" className="w-3.5 h-3.5 rounded-sm shrink-0 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                            ) : (
+                              <Rss className="w-3.5 h-3.5 shrink-0 text-orange-400/70" />
+                            )}
+                            <span className="flex-1 truncate text-xs">{feed.title ?? feed.url}</span>
+                            {hasError && <AlertCircle className="w-3 h-3 text-amber-500 shrink-0" />}
+                            {unread > 0 && (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-400/20 text-orange-400 shrink-0">
+                                {unread > 99 ? '99+' : unread}
+                              </span>
+                            )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); refreshFeed(feed.id) }}
+                              className="hidden group-hover:block p-0.5 rounded hover:text-orange-400 transition-colors shrink-0"
+                              title="Refresh"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </ContextMenu.Trigger>
+                        <ContextMenu.Content className="z-[300] min-w-[160px] bg-surface border border-border rounded-xl shadow-2xl py-1.5">
+                          <ContextMenu.Item
+                            className="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer outline-none text-text-secondary hover:bg-card hover:text-text-primary transition-colors"
+                            onSelect={() => { setEditingFeed(feed); setFeedModalOpen(true) }}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />Edit feed
+                          </ContextMenu.Item>
+                          <ContextMenu.Item
+                            className="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer outline-none text-text-secondary hover:bg-card hover:text-text-primary transition-colors"
+                            onSelect={() => refreshFeed(feed.id)}
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />Refresh now
+                          </ContextMenu.Item>
+                          <ContextMenu.Separator className="my-1 h-px bg-border" />
+                          <ContextMenu.Item
+                            className="flex items-center gap-2 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 cursor-pointer outline-none transition-colors"
+                            onSelect={async () => {
+                              if (await confirm(`Remove "${feed.title ?? feed.url}"? Feed items stay in your vault.`)) {
+                                await deleteFeed(feed.id)
+                                toast.success('Feed removed')
+                              }
+                            }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />Remove feed
+                          </ContextMenu.Item>
+                        </ContextMenu.Content>
+                      </ContextMenu.Root>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
+
+      <FeedModal
+        open={feedModalOpen}
+        feed={editingFeed}
+        onClose={() => { setFeedModalOpen(false); setEditingFeed(null) }}
+      />
 
         {/* Resizer */}
         <div

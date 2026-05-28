@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Vault, Folder, Item, Tag, CreateItemData, AppSettings, ItemType, SecurityStatus } from '../types'
+import type { Vault, Folder, Item, Tag, Feed, CreateItemData, AppSettings, ItemType, SecurityStatus } from '../types'
 
 interface HoardStore {
   // ── App state ──────────────────────────────────────────────────────────────
@@ -92,6 +92,19 @@ interface HoardStore {
   // ── Auto-summary push ─────────────────────────────────────────────────────
   autoSummaries: Record<number, string>
   setAutoSummary: (id: number, summary: string) => void
+
+  // ── Feed state ────────────────────────────────────────────────────────────
+  feeds:            Feed[]
+  selectedFeed:     Feed | null
+  feedUnreadCounts: Record<number, number>
+  loadFeeds:        () => Promise<void>
+  selectFeed:       (feed: Feed | null) => Promise<void>
+  createFeed:       (data: { url: string; intervalMinutes?: number; autoFolder?: boolean }) => Promise<Feed>
+  updateFeed:       (id: number, data: Partial<{ url: string; title: string; intervalMinutes: number; folderId: number | null; enabled: number }>) => Promise<void>
+  deleteFeed:       (id: number) => Promise<void>
+  refreshFeed:      (id: number) => Promise<void>
+  refreshAllFeeds:  () => Promise<void>
+  refreshFeedCounts: () => Promise<void>
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -144,10 +157,13 @@ export const useStore = create<HoardStore>((set, get) => ({
   settings:       DEFAULT_SETTINGS,
   selectedItem:   null,
   selectedType:   'all',
-  itemCounts:     { all: 0, link: 0, note: 0, image: 0, code: 0, quote: 0, file: 0 },
-  folderCounts:   {},
-  selectedIds:    new Set(),
-  autoSummaries:  {},
+  itemCounts:       { all: 0, link: 0, note: 0, image: 0, code: 0, quote: 0, file: 0 },
+  folderCounts:     {},
+  selectedIds:      new Set(),
+  autoSummaries:    {},
+  feeds:            [],
+  selectedFeed:     null,
+  feedUnreadCounts: {},
 
   // ── Security ───────────────────────────────────────────────────────────────
   checkSecurity: async () => {
@@ -188,15 +204,17 @@ export const useStore = create<HoardStore>((set, get) => ({
   },
 
   selectVault: async (vault) => {
-    set({ selectedVault: vault, selectedFolder: null, selectedTag: null, selectedType: 'all', isLoading: true, selectedItem: null, selectedIds: new Set() })
-    const [folders, items, tags, itemCounts, folderCounts] = await Promise.all([
+    set({ selectedVault: vault, selectedFolder: null, selectedTag: null, selectedType: 'all', selectedFeed: null, isLoading: true, selectedItem: null, selectedIds: new Set() })
+    const [folders, items, tags, itemCounts, folderCounts, feeds, feedUnreadCounts] = await Promise.all([
       window.api.folders.list(vault.id),
       window.api.items.list({ vaultId: vault.id }),
       window.api.tags.list(vault.id),
       window.api.items.counts(vault.id),
-      window.api.items.folderCounts(vault.id)
+      window.api.items.folderCounts(vault.id),
+      window.api.feeds.list(vault.id),
+      window.api.feeds.unreadCounts(vault.id)
     ])
-    set({ folders, items, tags, itemCounts, folderCounts, isLoading: false })
+    set({ folders, items, tags, itemCounts, folderCounts, feeds, feedUnreadCounts, isLoading: false })
   },
 
   createVault: async (name, color) => {
@@ -514,5 +532,76 @@ export const useStore = create<HoardStore>((set, get) => ({
   // ── Auto-summary push ──────────────────────────────────────────────────────
   setAutoSummary: (id, summary) => {
     set((s) => ({ autoSummaries: { ...s.autoSummaries, [id]: summary } }))
+  },
+
+  // ── Feed actions ──────────────────────────────────────────────────────────
+  loadFeeds: async () => {
+    const vault = get().selectedVault
+    if (!vault) return
+    const [feeds, feedUnreadCounts] = await Promise.all([
+      window.api.feeds.list(vault.id),
+      window.api.feeds.unreadCounts(vault.id)
+    ])
+    set({ feeds, feedUnreadCounts })
+  },
+
+  selectFeed: async (feed) => {
+    const vault = get().selectedVault
+    if (!vault) return
+    set({ selectedFeed: feed, selectedFolder: null, selectedTag: null, selectedType: 'all' })
+    if (!feed) {
+      await get().selectType('all')
+      return
+    }
+    set({ isLoading: true })
+    try {
+      const items = await window.api.items.list({ vaultId: vault.id, folderId: feed.folder_id ?? undefined })
+      // Filter to only items from this feed
+      const feedItems = (items as any[]).filter((i: any) => i.source_feed_id === feed.id)
+      set({ items: feedItems, isLoading: false })
+    } finally {
+      set({ isLoading: false })
+    }
+  },
+
+  createFeed: async (data) => {
+    const vault = get().selectedVault
+    if (!vault) throw new Error('No vault selected')
+    const feed = await window.api.feeds.create({ ...data, vaultId: vault.id })
+    await get().loadFeeds()
+    return feed
+  },
+
+  updateFeed: async (id, data) => {
+    await window.api.feeds.update(id, data)
+    await get().loadFeeds()
+  },
+
+  deleteFeed: async (id) => {
+    const { selectedFeed } = get()
+    await window.api.feeds.delete(id)
+    if (selectedFeed?.id === id) set({ selectedFeed: null })
+    await get().loadFeeds()
+  },
+
+  refreshFeed: async (id) => {
+    await window.api.feeds.refresh(id)
+    await get().loadFeeds()
+    const { selectedFeed } = get()
+    if (selectedFeed?.id === id) await get().selectFeed(selectedFeed)
+  },
+
+  refreshAllFeeds: async () => {
+    const vault = get().selectedVault
+    if (!vault) return
+    await window.api.feeds.refreshAll(vault.id)
+    await get().loadFeeds()
+  },
+
+  refreshFeedCounts: async () => {
+    const vault = get().selectedVault
+    if (!vault) return
+    const feedUnreadCounts = await window.api.feeds.unreadCounts(vault.id)
+    set({ feedUnreadCounts })
   }
 }))

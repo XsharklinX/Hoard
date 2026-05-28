@@ -16,6 +16,7 @@ import { loadSettings, saveSettings } from './settings'
 import { exportBackup } from './backup'
 import { createCaptureWindow, registerCaptureShortcut, unregisterCaptureShortcut } from './capture'
 import { startSyncWatcher, stopSyncWatcher } from './syncFolder'
+import { startFeedPoller, stopFeedPoller } from './feedFetcher'
 import icon from '../../resources/icon.png?asset'
 
 protocol.registerSchemesAsPrivileged([
@@ -231,6 +232,9 @@ app.whenReady().then(async () => {
   runScheduledTasks()
   setInterval(runScheduledTasks, 24 * 60 * 60 * 1000)
 
+  // Feed poller
+  startFeedPoller()
+
   app.on('activate', () => {
     if (mainWindow) {
       mainWindow.show()
@@ -244,6 +248,7 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => {
   unregisterCaptureShortcut()
   stopSyncWatcher()
+  stopFeedPoller()
   try { saveDb() } catch { /* ignore */ }
   shutdownOcrWorker().catch(() => {})
 })

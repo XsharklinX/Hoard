@@ -206,6 +206,31 @@ const MIGRATIONS: Array<{ version: number; up: () => void }> = [
       run('PRAGMA foreign_keys = ON')
     }
   }
+  ,
+  {
+    // feeds table + source_feed_id on items
+    version: 10,
+    up: () => {
+      run(`CREATE TABLE IF NOT EXISTS feeds (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        vault_id         INTEGER NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+        folder_id        INTEGER          REFERENCES folders(id) ON DELETE SET NULL,
+        url              TEXT    NOT NULL,
+        title            TEXT,
+        site_url         TEXT,
+        favicon          TEXT,
+        last_fetched     INTEGER,
+        interval_minutes INTEGER NOT NULL DEFAULT 60,
+        error_count      INTEGER NOT NULL DEFAULT 0,
+        last_error       TEXT,
+        enabled          INTEGER NOT NULL DEFAULT 1,
+        created_at       INTEGER DEFAULT (strftime('%s','now')),
+        updated_at       INTEGER DEFAULT (strftime('%s','now'))
+      )`)
+      if (!columnExists('items', 'source_feed_id'))
+        run('ALTER TABLE items ADD COLUMN source_feed_id INTEGER REFERENCES feeds(id) ON DELETE SET NULL')
+    }
+  }
 ]
 
 function applyMigrations(): void {
@@ -396,6 +421,7 @@ export interface CreateItemData {
   filePath?: string
   fileSize?: number
   fileMime?: string
+  sourceFeedId?: number | null
 }
 
 function getTagsForItem(itemId: number) {
@@ -507,8 +533,8 @@ export const itemQueries = {
   create: (data: CreateItemData) => {
     const row = insertReturning(
       'items',
-      `INSERT INTO items (vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, archive_path, attribution, file_path, file_size, file_mime)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO items (vault_id, folder_id, type, title, content, url, image_path, favicon, reading_time, code_lang, archive_path, attribution, file_path, file_size, file_mime, source_feed_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.vaultId,
         data.folderId ?? null,
@@ -524,7 +550,8 @@ export const itemQueries = {
         data.attribution ?? null,
         data.filePath ?? null,
         data.fileSize ?? null,
-        data.fileMime ?? null
+        data.fileMime ?? null,
+        data.sourceFeedId ?? null
       ]
     ) as { id: number }
 
@@ -562,10 +589,11 @@ export const itemQueries = {
       fields.push('link_status=?')
       values.push((data as any).linkStatus)
     }
-    if (data.attribution !== undefined) { fields.push('attribution=?'); values.push(data.attribution) }
-    if (data.filePath    !== undefined) { fields.push('file_path=?');   values.push(data.filePath) }
-    if (data.fileSize    !== undefined) { fields.push('file_size=?');   values.push(data.fileSize) }
-    if (data.fileMime    !== undefined) { fields.push('file_mime=?');   values.push(data.fileMime) }
+    if (data.attribution   !== undefined) { fields.push('attribution=?');    values.push(data.attribution) }
+    if (data.filePath      !== undefined) { fields.push('file_path=?');      values.push(data.filePath) }
+    if (data.fileSize      !== undefined) { fields.push('file_size=?');      values.push(data.fileSize) }
+    if (data.fileMime      !== undefined) { fields.push('file_mime=?');      values.push(data.fileMime) }
+    if (data.sourceFeedId  !== undefined) { fields.push('source_feed_id=?'); values.push(data.sourceFeedId) }
 
     if (fields.length) {
       fields.push("updated_at=strftime('%s','now')")
@@ -788,3 +816,83 @@ export function hasEncryptedDb(): boolean { return false }
 export function verifyPassword(password: string): boolean { return true }
 export function enableEncryption(password: string): void {}
 export function disableEncryption(): void {}
+
+// ── Feed queries ──────────────────────────────────────────────────────────────
+
+export interface CreateFeedData {
+  vaultId: number
+  folderId?: number | null
+  url: string
+  title?: string
+  siteUrl?: string
+  favicon?: string
+  intervalMinutes?: number
+}
+
+export const feedQueries = {
+  list: (vaultId: number) =>
+    all('SELECT * FROM feeds WHERE vault_id=? ORDER BY title ASC, created_at ASC', [vaultId]),
+
+  get: (id: number) => get('SELECT * FROM feeds WHERE id=?', [id]),
+
+  getAll: () => all('SELECT * FROM feeds WHERE enabled=1'),
+
+  create: (data: CreateFeedData) =>
+    insertReturning('feeds',
+      `INSERT INTO feeds (vault_id, folder_id, url, title, site_url, favicon, interval_minutes)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [data.vaultId, data.folderId ?? null, data.url, data.title ?? null,
+       data.siteUrl ?? null, data.favicon ?? null, data.intervalMinutes ?? 60]
+    ),
+
+  update: (id: number, data: Partial<CreateFeedData> & { lastFetched?: number; errorCount?: number; lastError?: string | null; enabled?: number }) => {
+    const fields: string[] = []
+    const values: unknown[] = []
+    if (data.url             !== undefined) { fields.push('url=?');              values.push(data.url) }
+    if (data.title           !== undefined) { fields.push('title=?');            values.push(data.title) }
+    if (data.siteUrl         !== undefined) { fields.push('site_url=?');         values.push(data.siteUrl) }
+    if (data.favicon         !== undefined) { fields.push('favicon=?');          values.push(data.favicon) }
+    if (data.folderId        !== undefined) { fields.push('folder_id=?');        values.push(data.folderId) }
+    if (data.intervalMinutes !== undefined) { fields.push('interval_minutes=?'); values.push(data.intervalMinutes) }
+    if (data.lastFetched     !== undefined) { fields.push('last_fetched=?');     values.push(data.lastFetched) }
+    if (data.errorCount      !== undefined) { fields.push('error_count=?');      values.push(data.errorCount) }
+    if (data.lastError       !== undefined) { fields.push('last_error=?');       values.push(data.lastError) }
+    if (data.enabled         !== undefined) { fields.push('enabled=?');          values.push(data.enabled) }
+    if (fields.length) {
+      fields.push("updated_at=strftime('%s','now')")
+      values.push(id)
+      run(`UPDATE feeds SET ${fields.join(', ')} WHERE id=?`, values)
+    }
+    return get('SELECT * FROM feeds WHERE id=?', [id])
+  },
+
+  delete: (id: number) => run('DELETE FROM feeds WHERE id=?', [id]),
+
+  getUnreadCounts: (vaultId: number): Record<number, number> => {
+    const rows = all<{ source_feed_id: number; count: number }>(
+      `SELECT source_feed_id, COUNT(*) as count FROM items
+       WHERE vault_id=? AND source_feed_id IS NOT NULL AND read_status='unread'
+       GROUP BY source_feed_id`,
+      [vaultId]
+    )
+    const result: Record<number, number> = {}
+    for (const row of rows) result[row.source_feed_id] = row.count
+    return result
+  },
+
+  urlExists: (vaultId: number, url: string): boolean => {
+    const row = get<{ c: number }>(
+      'SELECT COUNT(*) c FROM items WHERE vault_id=? AND url=?', [vaultId, url]
+    )
+    return (row?.c ?? 0) > 0
+  },
+
+  getDueFeedsForVault: (vaultId: number) => {
+    const nowSecs = Math.floor(Date.now() / 1000)
+    return all<Record<string, any>>(
+      `SELECT * FROM feeds WHERE vault_id=? AND enabled=1
+       AND (last_fetched IS NULL OR (? - last_fetched) >= interval_minutes * 60)`,
+      [vaultId, nowSecs]
+    )
+  }
+}

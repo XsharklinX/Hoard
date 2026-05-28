@@ -156,6 +156,14 @@ export default function App() {
     return () => { window.api.off('item:ai-summary', handler) }
   }, [])
 
+  // ── Feed items added push ─────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = window.api.on('feed:items-added', async () => {
+      await useStore.getState().refreshFeedCounts()
+    })
+    return () => { window.api.off('feed:items-added', handler) }
+  }, [])
+
   // ── Trigger dead link check on vault load ─────────────────────────────────
   useEffect(() => {
     if (!selectedVault) return

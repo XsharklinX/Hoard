@@ -57,6 +57,23 @@ export interface Tag {
   created_at: number
 }
 
+export interface Feed {
+  id: number
+  vault_id: number
+  folder_id: number | null
+  url: string
+  title: string | null
+  site_url: string | null
+  favicon: string | null
+  last_fetched: number | null
+  interval_minutes: number
+  error_count: number
+  last_error: string | null
+  enabled: 0 | 1
+  created_at: number
+  updated_at: number
+}
+
 export interface Item {
   id: number
   vault_id: number
@@ -78,6 +95,7 @@ export interface Item {
   file_path: string | null
   file_size: number | null
   file_mime: string | null
+  source_feed_id: number | null
   created_at: number
   updated_at: number
   tags: Tag[]
@@ -182,6 +200,17 @@ declare global {
         saveFile:        (filePath: string) => Promise<{ storedPath: string; size: number; mime: string }>
         openFile:        (storedPath: string) => Promise<void>
         extractReader:   (archivePath: string) => Promise<{ title: string; content: string } | null>
+      }
+      feeds: {
+        list:         (vaultId: number) => Promise<Feed[]>
+        unreadCounts: (vaultId: number) => Promise<Record<number, number>>
+        create:       (data: { vaultId: number; url: string; intervalMinutes?: number; autoFolder?: boolean }) => Promise<Feed>
+        update:       (id: number, data: Partial<{ url: string; title: string; intervalMinutes: number; folderId: number | null; enabled: number }>) => Promise<Feed>
+        delete:       (id: number) => Promise<void>
+        refresh:      (id: number) => Promise<{ added: number; error?: string }>
+        refreshAll:   (vaultId: number) => Promise<{ added: number }>
+        importOpml:   (vaultId: number) => Promise<{ count: number; cancelled?: boolean }>
+        exportOpml:   (vaultId: number) => Promise<{ success?: boolean; cancelled?: boolean; filePath?: string }>
       }
       bookmarks: {
         import: (vaultId: number) => Promise<{ count: number; cancelled?: boolean }>

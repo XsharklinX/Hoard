@@ -8,9 +8,10 @@ import updaterPkg from 'electron-updater'
 const { autoUpdater } = updaterPkg
 import { JSDOM } from 'jsdom'
 import { Readability } from '@mozilla/readability'
-import { vaultQueries, folderQueries, itemQueries, tagQueries, getImagesDir, CreateItemData,
+import { vaultQueries, folderQueries, itemQueries, tagQueries, feedQueries, getImagesDir, CreateItemData,
          initDb, enableEncryption, disableEncryption, verifyPassword, hasEncryptedDb, isEncryptionEnabled,
          versionQueries, getUncheckedLinks, setLinkStatus } from './db'
+import { parseFeed, refreshFeed } from './feedFetcher'
 import { loadSettings, saveSettings } from './settings'
 import { sendToRenderer } from './window'
 import { exportBackup, importBackup } from './backup'
@@ -556,6 +557,97 @@ export function registerHandlers(): void {
   ipcMain.handle('item:folder-counts', (_e, vaultId: number) =>
     itemQueries.folderCounts(vaultId)
   )
+
+  // ── Feed handlers ────────────────────────────────────────────────────────────
+  ipcMain.handle('feed:list',    (_e, vaultId: number) => feedQueries.list(vaultId))
+
+  ipcMain.handle('feed:unread-counts', (_e, vaultId: number) => feedQueries.getUnreadCounts(vaultId))
+
+  ipcMain.handle('feed:create', async (_e, data: { vaultId: number; url: string; intervalMinutes?: number; autoFolder?: boolean }) => {
+    // Fetch feed metadata first
+    let title: string | undefined
+    let siteUrl: string | undefined
+    let favicon: string | undefined
+    let folderId: number | null = null
+
+    try {
+      const parsed = await parseFeed(data.url)
+      title   = parsed.title
+      siteUrl = parsed.siteUrl
+      favicon = parsed.favicon ?? undefined
+    } catch {
+      // use URL hostname as title fallback
+      try { title = new URL(data.url).hostname } catch { title = data.url }
+    }
+
+    // Auto-create folder if requested
+    if (data.autoFolder && title) {
+      const folder = folderQueries.create(data.vaultId, title)
+      folderId = (folder as any).id
+    }
+
+    const feed = feedQueries.create({ vaultId: data.vaultId, folderId, url: data.url, title, siteUrl, favicon, intervalMinutes: data.intervalMinutes ?? 60 })
+    // Kick off background refresh
+    refreshFeed((feed as any).id).catch(console.error)
+    return feed
+  })
+
+  ipcMain.handle('feed:update', (_e, id: number, data: { url?: string; title?: string; intervalMinutes?: number; folderId?: number | null; enabled?: number }) =>
+    feedQueries.update(id, data)
+  )
+
+  ipcMain.handle('feed:delete', (_e, id: number) => { feedQueries.delete(id) })
+
+  ipcMain.handle('feed:refresh', async (_e, id: number) => refreshFeed(id))
+
+  ipcMain.handle('feed:refresh-all', async (_e, vaultId: number) => {
+    const feeds = feedQueries.list(vaultId) as any[]
+    const results = await Promise.allSettled(feeds.map((f) => refreshFeed(f.id)))
+    const added = results.reduce((sum, r) => sum + (r.status === 'fulfilled' ? r.value.added : 0), 0)
+    return { added }
+  })
+
+  ipcMain.handle('feed:import-opml', async (_e, vaultId: number) => {
+    const result = await dialog.showOpenDialog({
+      title: 'Import OPML feeds',
+      filters: [{ name: 'OPML', extensions: ['opml', 'xml'] }],
+      properties: ['openFile']
+    })
+    if (result.canceled || !result.filePaths.length) return { count: 0, cancelled: true }
+
+    const xml   = fs.readFileSync(result.filePaths[0], 'utf-8')
+    const regex = /xmlUrl="([^"]+)"[^>]*(?:text|title)="([^"]*)"/gi
+    let match: RegExpExecArray | null
+    let count   = 0
+
+    while ((match = regex.exec(xml)) !== null) {
+      const [, url, title] = match
+      if (!url) continue
+      try {
+        feedQueries.create({ vaultId, url, title: title || undefined, intervalMinutes: 60 })
+        count++
+      } catch { /* skip duplicates */ }
+    }
+    return { count }
+  })
+
+  ipcMain.handle('feed:export-opml', async (_e, vaultId: number) => {
+    const feeds = feedQueries.list(vaultId) as any[]
+    const lines = feeds.map((f) =>
+      `  <outline type="rss" text="${esc(f.title ?? f.url)}" xmlUrl="${esc(f.url)}"${f.site_url ? ` htmlUrl="${esc(f.site_url)}"` : ''} />`
+    )
+    const opml = `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0">\n  <head><title>Hoard Feeds</title></head>\n  <body>\n${lines.join('\n')}\n  </body>\n</opml>`
+
+    const win = BrowserWindow.getFocusedWindow()
+    const saveResult = await dialog.showSaveDialog(win || undefined as any, {
+      title: 'Export OPML',
+      defaultPath: 'hoard-feeds.opml',
+      filters: [{ name: 'OPML', extensions: ['opml'] }]
+    })
+    if (saveResult.canceled || !saveResult.filePath) return { cancelled: true }
+    fs.writeFileSync(saveResult.filePath, opml, 'utf-8')
+    return { success: true, filePath: saveResult.filePath }
+  })
 }
 
 // ── CSV parser helper ─────────────────────────────────────────────────────────

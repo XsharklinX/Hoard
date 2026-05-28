@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, FileText, Image, Pin, Trash2, ExternalLink, Clock, Code, Check, Pencil, Copy, Download, Maximize2, Quote, Paperclip } from 'lucide-react'
+import { Link, FileText, Image, Pin, Trash2, ExternalLink, Clock, Code, Check, Pencil, Copy, Download, Maximize2, Quote, Paperclip, Rss } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import * as ContextMenu from '@radix-ui/react-context-menu'
 import { useStore } from '../store'
@@ -483,12 +483,19 @@ export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
             <p className="text-xs text-text-muted leading-relaxed line-clamp-2 mt-0.5">{item.content}</p>
           )}
 
-          {item.reading_time && item.reading_time > 1 && settings.showReadingTime && (
-            <div className="flex items-center gap-1.5 mt-2.5 text-xs text-text-muted">
-              <Clock className="w-3 h-3" />
-              <span>{t.readingTimeMin(item.reading_time)}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-3 mt-2.5">
+            {item.reading_time && item.reading_time > 1 && settings.showReadingTime && (
+              <div className="flex items-center gap-1.5 text-xs text-text-muted">
+                <Clock className="w-3 h-3" />
+                <span>{t.readingTimeMin(item.reading_time)}</span>
+              </div>
+            )}
+            {(item as any).source_feed_id && (
+              <div className="flex items-center gap-1 text-[10px] text-orange-400/70 ml-auto">
+                <Rss className="w-2.5 h-2.5" />
+              </div>
+            )}
+          </div>
         </div>
       </ContextMenu.Trigger>
       {contextMenuContent}
