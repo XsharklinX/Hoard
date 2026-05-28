@@ -16,6 +16,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { ImageLightbox } from './components/ImageLightbox'
+import { ShortcutModal } from './components/ShortcutModal'
 import { useStore } from './store'
 import type { Vault, Item } from './types'
 
@@ -50,7 +51,7 @@ export default function App() {
   const {
     loadVaults, selectedItem, checkSecurity, appLocked, unlock, lockApp, settings, updateSettings,
     updateArchiveStatus, updateLinkStatus, selectFolder, selectTag, selectType, loadCounts, reloadFolders,
-    selectedFolder, selectedTag, selectedType, selectedVault
+    selectedFolder, selectedTag, selectedType, selectedVault, setAutoSummary
   } = useStore()
 
   const [addOpen,      setAddOpen]      = useState(false)
@@ -61,9 +62,10 @@ export default function App() {
   const [paletteOpen,  setPaletteOpen]  = useState(false)
   const [editOpen,     setEditOpen]     = useState(false)
   const [editingItem,  setEditingItem]  = useState<Item | null>(null)
-  const [editVault,    setEditVault]    = useState<Vault | null>(null)
-  const [appReady,     setAppReady]     = useState(false)
-  const [showWelcome,  setShowWelcome]  = useState(false)
+  const [editVault,     setEditVault]     = useState<Vault | null>(null)
+  const [appReady,      setAppReady]      = useState(false)
+  const [showWelcome,   setShowWelcome]   = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
   // ── Theme ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -145,6 +147,15 @@ export default function App() {
     return () => { window.api.off('item:link-status', handler) }
   }, [])
 
+  // ── Auto-summarize push ────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = window.api.on('item:ai-summary', (payload: unknown) => {
+      const { id, summary } = payload as { id: number; summary: string }
+      useStore.getState().setAutoSummary(id, summary)
+    })
+    return () => { window.api.off('item:ai-summary', handler) }
+  }, [])
+
   // ── Trigger dead link check on vault load ─────────────────────────────────
   useEffect(() => {
     if (!selectedVault) return
@@ -169,12 +180,23 @@ export default function App() {
       if ((e.metaKey || e.ctrlKey) && e.key === 'n') { e.preventDefault(); setAddOpen(true) }
       if ((e.metaKey || e.ctrlKey) && e.key === ',') { e.preventDefault(); setSettingsOpen(true) }
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setPaletteOpen((v) => !v) }
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const tag = (e.target as HTMLElement).tagName
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+          e.preventDefault()
+          setShortcutsOpen((v) => !v)
+        }
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
-  if (!appReady) return null
+  if (!appReady) return (
+    <div className="flex h-full w-full items-center justify-center bg-[#0a0a0a]">
+      <div className="w-5 h-5 rounded-full border-2 border-gold/30 border-t-gold animate-spin" />
+    </div>
+  )
   if (appLocked) return <LockScreen onUnlock={handleUnlock} />
 
   return (
@@ -212,6 +234,7 @@ export default function App() {
       <FolderModal   open={folderOpen}   onClose={() => setFolderOpen(false)} />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <ShortcutModal  open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <ConfirmDialog />
     </div>
     </ErrorBoundary>
@@ -223,6 +246,11 @@ export default function App() {
       <WelcomeScreen onComplete={async () => {
         await updateSettings({ hasSeenWelcome: true })
         setShowWelcome(false)
+        // If no vault exists yet, prompt to create one immediately
+        if (useStore.getState().vaults.length === 0) {
+          setEditVault(null)
+          setVaultOpen(true)
+        }
       }} />
     )}
     </>

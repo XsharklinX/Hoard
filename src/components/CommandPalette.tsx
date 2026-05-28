@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Search, Link, FileText, Image, Code, X } from 'lucide-react'
+import { Search, Link, FileText, Image, Code, X, Globe } from 'lucide-react'
 import { useStore } from '../store'
 import { toFileUrl, getDomain } from '../lib/utils'
 import type { Item } from '../types'
@@ -20,26 +20,41 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const { items, selectItem } = useStore()
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [globalResults, setGlobalResults] = useState<Item[]>([])
+  const [isSearching, setIsSearching] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Reset & focus on open
   useEffect(() => {
     if (open) {
       setQuery('')
       setSelectedIndex(0)
+      setGlobalResults([])
       setTimeout(() => inputRef.current?.focus(), 40)
     }
   }, [open])
 
-  const filtered = (items || []).filter((item) => {
-    if (!query.trim()) return true
-    const q = query.toLowerCase()
-    return (
-      item.title?.toLowerCase().includes(q) ||
-      item.content?.toLowerCase().includes(q) ||
-      item.url?.toLowerCase().includes(q)
-    )
-  }).slice(0, 15)
+  // Cross-vault FTS search with debounce
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    if (!query.trim() || query.trim().length < 2) {
+      setGlobalResults([])
+      return
+    }
+    setIsSearching(true)
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const results = await window.api.items.searchGlobal(query.trim())
+        setGlobalResults(results)
+      } catch { /* ignore */ }
+      setIsSearching(false)
+    }, 200)
+  }, [query])
+
+  const filtered = query.trim().length >= 2
+    ? globalResults.slice(0, 15)
+    : (items || []).slice(0, 15)
 
   const handleSelect = (item: Item) => {
     selectItem(item)
@@ -92,11 +107,19 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         <div className="overflow-y-auto max-h-[60vh] py-1.5">
           {filtered.length === 0 ? (
             <div className="px-4 py-12 text-center text-text-muted text-sm">
-              {query ? 'No items found matching your search' : 'No items in this vault yet'}
+              {isSearching
+                ? 'Searching…'
+                : query.trim().length >= 2
+                ? 'No items found across all vaults'
+                : 'No items in this vault yet'}
             </div>
           ) : (
             <>
-              {!query && (
+              {query.trim().length >= 2 ? (
+                <p className="px-4 py-1.5 text-[10px] uppercase tracking-widest text-text-muted font-bold opacity-70 flex items-center gap-1.5">
+                  <Globe className="w-3 h-3" />All vaults — {filtered.length} results
+                </p>
+              ) : (
                 <p className="px-4 py-1.5 text-[10px] uppercase tracking-widest text-text-muted font-bold opacity-70">
                   Recently added
                 </p>

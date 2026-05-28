@@ -27,6 +27,14 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
     if (selectedType !== 'unread') return 0
     return items.reduce((sum, i) => sum + (i.type === 'link' ? (i.reading_time ?? 0) : 0), 0)
   }, [items, selectedType])
+
+  const tagCounts = useMemo(() => {
+    const counts: Record<number, number> = {}
+    items.forEach((item) => item.tags.forEach((tag) => {
+      counts[tag.id] = (counts[tag.id] ?? 0) + 1
+    }))
+    return counts
+  }, [items])
   const t = useT()
 
   const [expandedFolders, setExpandedFolders] = useState<Set<number>>(new Set())
@@ -294,6 +302,9 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
                     >
                       <Tag className="w-3 h-3 shrink-0" style={{ color: tag.color }} />
                       <span className="flex-1 truncate">{tag.name}</span>
+                      {tagCounts[tag.id] != null && (
+                        <span className="text-[10px] text-text-muted group-hover:hidden">{tagCounts[tag.id]}</span>
+                      )}
                       <button
                         onClick={(e) => handleDeleteTag(e, tag.id)}
                         className="hidden group-hover:block p-0.5 rounded hover:text-red-400 transition-colors"
@@ -529,10 +540,8 @@ function DraggableFolderList(props: DraggableFolderListProps) {
   const [draggingId, setDraggingId] = useState<number | null>(null)
   const [overIdx, setOverIdx] = useState<number | null>(null)
 
-  // Keep order in sync if folders change externally
-  useEffect(() => {
-    setOrder(folders.map((f) => f.id))
-  }, [folders.map((f) => f.id).join(',')])
+  const folderIdKey = useMemo(() => folders.map((f) => f.id).join(','), [folders])
+  useEffect(() => { setOrder(folders.map((f) => f.id)) }, [folderIdKey])
 
   const orderedFolders = order.map((id) => folders.find((f) => f.id === id)).filter(Boolean) as FolderType[]
 

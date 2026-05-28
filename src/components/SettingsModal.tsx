@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   X, Globe, Eye, Layers, Upload, Loader2, CheckCircle2, Lock, Shield, ShieldOff,
   Download, HardDrive, AlertTriangle, FolderOpen, RefreshCw, Puzzle,
-  ArrowDownToLine, RotateCcw, Info, Zap, Palette, Sparkles, FolderSync, FileText
+  ArrowDownToLine, RotateCcw, Info, Zap, Palette, Sparkles, FolderSync, FileText, Clock
 } from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
@@ -628,8 +628,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
           <section className="px-5 py-4 flex flex-col gap-3">
             <SectionHeader icon={<Upload className="w-3.5 h-3.5" />} label="Import" />
             <p className="text-xs text-text-muted leading-relaxed">
-              Import bookmarks from Chrome, Firefox, Edge or Safari. Export them as{' '}
-              <span className="font-mono bg-card px-1 rounded text-text-secondary">.html</span> from your browser first.
+              Import bookmarks from Chrome, Firefox, Edge or Safari (HTML) or from Raindrop.io / Readwise (CSV).
             </p>
             <button onClick={handleImportBookmarks} disabled={importState === 'loading'}
               className={cn('flex items-center gap-2 self-start px-4 py-2 rounded-lg text-sm font-medium transition-all border',
@@ -646,6 +645,50 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               </div>
             )}
             <p className="text-[11px] text-text-muted/60">Metadata and thumbnails are fetched in the background.</p>
+          </section>
+
+          {/* ── Scheduled Tasks ── */}
+          <section className="px-5 py-4 flex flex-col gap-3">
+            <SectionHeader icon={<Clock className="w-3.5 h-3.5" />} label="Scheduled Tasks" />
+            <Toggle
+              label="Auto-archive old unread"
+              description={`Mark unread links as read after ${settings.autoArchiveAfterDays ?? 30} days`}
+              value={settings.autoArchiveEnabled ?? false}
+              onChange={(v) => updateSettings({ autoArchiveEnabled: v })}
+            />
+            {settings.autoArchiveEnabled && (
+              <div className="flex items-center justify-between pl-0">
+                <span className="text-sm text-text-primary">Archive after</span>
+                <select value={settings.autoArchiveAfterDays ?? 30}
+                  onChange={(e) => updateSettings({ autoArchiveAfterDays: Number(e.target.value) })}
+                  className="bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-gold/50">
+                  <option value={7}>7 days</option>
+                  <option value={14}>14 days</option>
+                  <option value={30}>30 days</option>
+                  <option value={60}>60 days</option>
+                  <option value={90}>90 days</option>
+                </select>
+              </div>
+            )}
+            <Toggle
+              label="Auto-purge dead links"
+              description={`Permanently delete dead links after ${settings.autopurgeDeadLinksAfterDays ?? 90} days`}
+              value={settings.autopurgeDeadLinksEnabled ?? false}
+              onChange={(v) => updateSettings({ autopurgeDeadLinksEnabled: v })}
+            />
+            {settings.autopurgeDeadLinksEnabled && (
+              <div className="flex items-center justify-between pl-0">
+                <span className="text-sm text-text-primary">Purge after</span>
+                <select value={settings.autopurgeDeadLinksAfterDays ?? 90}
+                  onChange={(e) => updateSettings({ autopurgeDeadLinksAfterDays: Number(e.target.value) })}
+                  className="bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-gold/50">
+                  <option value={30}>30 days</option>
+                  <option value={60}>60 days</option>
+                  <option value={90}>90 days</option>
+                  <option value={180}>180 days</option>
+                </select>
+              </div>
+            )}
           </section>
 
           {/* ── Data ── */}

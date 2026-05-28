@@ -7,7 +7,7 @@ import { useT } from '../i18n'
 import { confirm } from '../lib/confirm'
 import { toast } from '../lib/toast'
 import type { Item } from '../types'
-import { cn, formatDate, truncate, toFileUrl, getDomain } from '../lib/utils'
+import { cn, formatDate, formatRelativeDate, truncate, toFileUrl, getDomain } from '../lib/utils'
 
 interface ItemCardProps {
   item:      Item
@@ -30,6 +30,7 @@ export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
   const t = useT()
   const [faviconError, setFaviconError] = useState(false)
   const [imgError,     setImgError]     = useState(false)
+  const [copiedUrl,    setCopiedUrl]    = useState(false)
 
   const isSelected   = selectedItem?.id === item.id
   const isChecked    = selectedIds.has(item.id)
@@ -255,7 +256,7 @@ export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
                   {item.type === 'code' ? item.code_lang || 'Code' : 'Note'}
                 </span>
                 <span>•</span>
-                <span>{formatDate(item.created_at)}</span>
+                <span>{formatRelativeDate(item.created_at)}</span>
               </div>
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button onClick={(e) => handlePin(e)} className={cn('p-1.5 rounded-md hover:bg-border transition-colors', item.is_pinned ? 'text-gold' : 'text-text-muted hover:text-gold')}><Pin className="w-3.5 h-3.5" /></button>
@@ -303,6 +304,14 @@ export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
               )}
               <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 backdrop-blur p-1 rounded-lg">
                 {item.url && <button onClick={handleOpenUrl} className="p-1.5 rounded-md hover:bg-white/10 text-white transition-colors"><ExternalLink className="w-3.5 h-3.5" /></button>}
+                {item.url && (
+                  <button
+                    onClick={async (e) => { e.stopPropagation(); await navigator.clipboard.writeText(item.url!); setCopiedUrl(true); setTimeout(() => setCopiedUrl(false), 1500) }}
+                    className="p-1.5 rounded-md hover:bg-white/10 text-white transition-colors"
+                  >
+                    {copiedUrl ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                )}
                 <button onClick={(e) => handlePin(e)} className={cn('p-1.5 rounded-md hover:bg-white/10 transition-colors', item.is_pinned ? 'text-gold' : 'text-white')}><Pin className="w-3.5 h-3.5" /></button>
                 <button onClick={(e) => handleDelete(e)} className="p-1.5 rounded-md hover:bg-red-500/20 text-white hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
@@ -364,6 +373,14 @@ export function ItemCard({ item, focused, onMove, onEdit }: ItemCardProps) {
             </div>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
               {item.url && <button onClick={handleOpenUrl} className="p-1.5 rounded-md hover:bg-border text-text-muted hover:text-sky-400 transition-colors"><ExternalLink className="w-3.5 h-3.5" /></button>}
+              {item.url && (
+                <button
+                  onClick={async (e) => { e.stopPropagation(); await navigator.clipboard.writeText(item.url!); setCopiedUrl(true); setTimeout(() => setCopiedUrl(false), 1500) }}
+                  className="p-1.5 rounded-md hover:bg-border text-text-muted hover:text-sky-400 transition-colors"
+                >
+                  {copiedUrl ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              )}
               <button onClick={(e) => handlePin(e)} className={cn('p-1.5 rounded-md hover:bg-border transition-colors', item.is_pinned ? 'text-gold' : 'text-text-muted hover:text-gold')}><Pin className="w-3.5 h-3.5" /></button>
               <button onClick={(e) => handleDelete(e)} className="p-1.5 rounded-md hover:bg-border text-text-muted hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>

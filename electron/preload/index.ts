@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('api', {
     duplicate:    (id: number)                                                           => ipcRenderer.invoke('item:duplicate', id),
     folderCounts: (vaultId: number)                                                      => ipcRenderer.invoke('item:folder-counts', vaultId),
     searchItems:  (vaultId: number, q: string)                                          => ipcRenderer.invoke('item:search-items', vaultId, q),
+    searchGlobal: (q: string)                                                           => ipcRenderer.invoke('item:search-global', q),
     openReader:   (archivePath: string, title: string)                                  => ipcRenderer.invoke('item:open-reader', archivePath, title),
     tagSelected:  (ids: number[], tagIds: number[])                                     => ipcRenderer.invoke('item:tag-selected', ids, tagIds),
     versionsList: (itemId: number)                                                       => ipcRenderer.invoke('item:versions-list', itemId),

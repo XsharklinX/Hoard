@@ -221,6 +221,17 @@ function StepExtension() {
         </div>
       </div>
 
+      {/* First step callout */}
+      <div className="flex items-start gap-3 p-3.5 rounded-xl bg-gold/5 border border-gold/20">
+        <div className="w-6 h-6 rounded-full bg-gold text-black flex items-center justify-center shrink-0 text-[11px] font-bold mt-0.5">1</div>
+        <div className="flex flex-col gap-0.5">
+          <p className="text-xs font-semibold text-text-primary">Create your first vault</p>
+          <p className="text-[11px] text-text-muted leading-relaxed">
+            A vault is your top-level container. After this screen, click <strong className="text-gold">+ New vault</strong> in the sidebar to get started.
+          </p>
+        </div>
+      </div>
+
       {/* Tips */}
       <div className="mt-auto flex flex-col gap-1.5">
         <p className="text-[11px] text-text-muted uppercase tracking-widest font-semibold">Quick tips</p>
@@ -228,7 +239,7 @@ function StepExtension() {
           <Tip keys="Ctrl+K" label="Command palette" />
           <Tip keys="Ctrl+N" label="New item" />
           <Tip keys="Ctrl+," label="Settings" />
-          <Tip keys="Alt+S" label="Extension popup" />
+          <Tip keys="?" label="Shortcuts cheatsheet" />
         </div>
       </div>
     </div>

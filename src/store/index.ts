@@ -88,6 +88,10 @@ interface HoardStore {
 
   // ── Link status push ──────────────────────────────────────────────────────
   updateLinkStatus: (id: number, status: 'ok' | 'dead' | 'unknown') => void
+
+  // ── Auto-summary push ─────────────────────────────────────────────────────
+  autoSummaries: Record<number, string>
+  setAutoSummary: (id: number, summary: string) => void
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -113,7 +117,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   aiClaudeApiKey: '',
   aiGeminiApiKey: '',
   syncFolderPath: '',
-  syncFolderEnabled: false
+  syncFolderEnabled: false,
+  autoArchiveEnabled: false,
+  autoArchiveAfterDays: 30,
+  autopurgeDeadLinksEnabled: false,
+  autopurgeDeadLinksAfterDays: 90,
+  sortBy: 'newest'
 }
 
 const DEFAULT_SECURITY: SecurityStatus = { locked: false, encryptionEnabled: false, hasEncryptedDb: false }
@@ -138,6 +147,7 @@ export const useStore = create<HoardStore>((set, get) => ({
   itemCounts:     { all: 0, link: 0, note: 0, image: 0, code: 0 },
   folderCounts:   {},
   selectedIds:    new Set(),
+  autoSummaries:  {},
 
   // ── Security ───────────────────────────────────────────────────────────────
   checkSecurity: async () => {
@@ -159,7 +169,7 @@ export const useStore = create<HoardStore>((set, get) => ({
   // ── Settings ───────────────────────────────────────────────────────────────
   loadSettings: async () => {
     const settings = await window.api.settings.load()
-    set({ settings })
+    set({ settings, sortBy: settings.sortBy ?? 'newest' })
   },
 
   updateSettings: async (patch) => {
@@ -340,6 +350,7 @@ export const useStore = create<HoardStore>((set, get) => ({
       if (sort === 'readingtime') sorted.sort((a, b) => (b.reading_time ?? 0) - (a.reading_time ?? 0))
       return { sortBy: sort, items: sorted }
     })
+    window.api.settings.save({ sortBy: sort }).catch(console.error)
   },
 
   openLightbox:  (item) => set({ lightboxItem: item }),
@@ -498,5 +509,10 @@ export const useStore = create<HoardStore>((set, get) => ({
       items:        s.items.map((i) => i.id === id ? { ...i, link_status: status } : i),
       selectedItem: s.selectedItem?.id === id ? { ...s.selectedItem, link_status: status } : s.selectedItem
     }))
+  },
+
+  // ── Auto-summary push ──────────────────────────────────────────────────────
+  setAutoSummary: (id, summary) => {
+    set((s) => ({ autoSummaries: { ...s.autoSummaries, [id]: summary } }))
   }
 }))

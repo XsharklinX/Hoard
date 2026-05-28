@@ -609,6 +609,36 @@ export const itemQueries = {
     return result
   },
 
+  archiveOldUnread: (olderThanDays: number): number => {
+    const cutoff = Math.floor(Date.now() / 1000) - olderThanDays * 86400
+    const stmt = db.prepare("UPDATE items SET read_status='read', updated_at=strftime('%s','now') WHERE type='link' AND read_status='unread' AND created_at < ?")
+    return stmt.run([cutoff]).changes
+  },
+
+  purgeDeadLinks: (olderThanDays: number): number => {
+    const cutoff = Math.floor(Date.now() / 1000) - olderThanDays * 86400
+    const stmt = db.prepare("DELETE FROM items WHERE link_status='dead' AND created_at < ?")
+    return stmt.run([cutoff]).changes
+  },
+
+  searchGlobal: (q: string, limit = 20) => {
+    if (!q.trim()) return []
+    const escaped = q.trim().replace(/['"*]/g, ' ').trim() + '*'
+    try {
+      const rows = all<{ id: number }>(
+        `SELECT i.* FROM items i WHERE i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?) LIMIT ?`,
+        [escaped, limit]
+      )
+      return attachTags(rows as any[])
+    } catch {
+      const rows = all<{ id: number }>(
+        `SELECT * FROM items WHERE title LIKE ? OR content LIKE ? LIMIT ?`,
+        [`%${q}%`, `%${q}%`, limit]
+      )
+      return attachTags(rows as any[])
+    }
+  },
+
   searchForLink: (vaultId: number, q: string) => {
     if (!q.trim()) return []
     const escaped = q.trim().replace(/['"*]/g, ' ').trim() + '*'

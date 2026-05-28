@@ -14,6 +14,7 @@ import { sendToRenderer } from './window'
 import { exportBackup, importBackup } from './backup'
 import { processImageOcr } from './ocr'
 import { archiveWebPage } from './archive'
+import { startSyncWatcher, stopSyncWatcher } from './syncFolder'
 import Jimp from 'jimp'
 
 let _needsPassword = false
@@ -43,6 +44,13 @@ export function registerHandlers(): void {
     } else if (data.type === 'link' && data.url) {
       // Archive runs in background — no await
       archiveWebPage(item.id, data.url).catch(console.error)
+      const s = loadSettings()
+      if (s.aiProvider !== 'none') {
+        const text = (data.content ?? data.title ?? data.url ?? '').slice(0, 4000)
+        performSummarize({ text, provider: s.aiProvider, ollamaUrl: s.aiOllamaUrl, ollamaModel: s.aiOllamaModel, claudeApiKey: s.aiClaudeApiKey, geminiApiKey: s.aiGeminiApiKey })
+          .then(res => { if (res.summary) sendToRenderer('item:ai-summary', { id: item.id, summary: res.summary }) })
+          .catch(console.error)
+      }
     }
     return item
   })
@@ -50,7 +58,8 @@ export function registerHandlers(): void {
   ipcMain.handle('item:pin',         (_e, id: number, pinned: boolean)               => { itemQueries.pin(id, pinned) })
   ipcMain.handle('item:delete',      (_e, id: number)                                => { itemQueries.delete(id) })
   ipcMain.handle('item:set-read',    (_e, id: number, status: 'unread' | 'read')     => itemQueries.update(id, { readStatus: status }))
-  ipcMain.handle('item:search-items',(_e, vaultId: number, q: string)                => itemQueries.searchForLink(vaultId, q))
+  ipcMain.handle('item:search-items',  (_e, vaultId: number, q: string) => itemQueries.searchForLink(vaultId, q))
+  ipcMain.handle('item:search-global', (_e, q: string)                  => itemQueries.searchGlobal(q))
   ipcMain.handle('item:tag-selected',(_e, ids: number[], tagIds: number[])           => {
     for (const id of ids) itemQueries.update(id, { tagIds })
   })
@@ -90,6 +99,15 @@ export function registerHandlers(): void {
     // would point to the Electron binary, not the installed app.
     if (patch.launchAtStartup !== undefined && app.isPackaged) {
       app.setLoginItemSettings({ openAtLogin: !!patch.launchAtStartup })
+    }
+    // Restart sync watcher if sync settings changed
+    if (patch.syncFolderEnabled !== undefined || patch.syncFolderPath !== undefined) {
+      const fresh = loadSettings()
+      if (fresh.syncFolderEnabled && fresh.syncFolderPath) {
+        startSyncWatcher(fresh.syncFolderPath)
+      } else {
+        stopSyncWatcher()
+      }
     }
     return updated
   })
@@ -181,13 +199,100 @@ export function registerHandlers(): void {
   ipcMain.handle('bookmarks:import', async (_e, vaultId: number) => {
     const result = await dialog.showOpenDialog({
       title: 'Select bookmarks file',
-      filters: [{ name: 'HTML Bookmarks', extensions: ['html', 'htm'] }],
+      filters: [
+        { name: 'Bookmarks / Highlights', extensions: ['html', 'htm', 'csv'] },
+        { name: 'HTML Bookmarks', extensions: ['html', 'htm'] },
+        { name: 'CSV (Raindrop / Readwise)', extensions: ['csv'] }
+      ],
       properties: ['openFile']
     })
     if (result.canceled || !result.filePaths.length) return { count: 0, cancelled: true }
 
-    const html = fs.readFileSync(result.filePaths[0], 'utf-8')
-    const bookmarks = parseNetscapeBookmarks(html)
+    const filePath = result.filePaths[0]
+    const ext = path.extname(filePath).toLowerCase()
+    const text = fs.readFileSync(filePath, 'utf-8')
+
+    if (ext === '.csv') {
+      const lines = text.split('\n').filter(l => l.trim())
+      if (!lines.length) return { count: 0 }
+      const header = lines[0].toLowerCase()
+
+      if (header.includes('highlight')) {
+        // Readwise CSV
+        const headerCols = parseCsvRow(lines[0])
+        const highlightIdx  = headerCols.findIndex(c => c.trim().toLowerCase() === 'highlight')
+        const bookTitleIdx  = headerCols.findIndex(c => c.trim().toLowerCase() === 'book title')
+        const bookAuthorIdx = headerCols.findIndex(c => c.trim().toLowerCase() === 'book author')
+        let count = 0
+        for (let i = 1; i < lines.length; i++) {
+          const cols = parseCsvRow(lines[i])
+          const highlight  = highlightIdx  >= 0 ? (cols[highlightIdx]  ?? '').trim() : ''
+          const bookTitle  = bookTitleIdx  >= 0 ? (cols[bookTitleIdx]  ?? '').trim() : ''
+          const bookAuthor = bookAuthorIdx >= 0 ? (cols[bookAuthorIdx] ?? '').trim() : ''
+          if (!highlight) continue
+          const title = bookTitle || 'Readwise Highlight'
+          const content = [bookTitle && `Book: ${bookTitle}`, bookAuthor && `Author: ${bookAuthor}`, '', highlight].filter(s => s !== false).join('\n').trim()
+          itemQueries.create({ vaultId, type: 'note', title, content })
+          count++
+        }
+        sendToRenderer('bookmarks:progress', { done: count, total: count, finished: true })
+        return { count }
+      } else {
+        // Raindrop.io CSV
+        const headerCols = parseCsvRow(lines[0])
+        const urlIdx   = headerCols.findIndex(c => c.trim().toLowerCase() === 'url')
+        const titleIdx = headerCols.findIndex(c => c.trim().toLowerCase() === 'title')
+        if (urlIdx < 0) return { count: 0 }
+        const bookmarks: { url: string; title: string }[] = []
+        for (let i = 1; i < lines.length; i++) {
+          const cols = parseCsvRow(lines[i])
+          const url   = urlIdx   >= 0 ? (cols[urlIdx]   ?? '').trim() : ''
+          const title = titleIdx >= 0 ? (cols[titleIdx] ?? '').trim() : ''
+          if (!url || !url.startsWith('http')) continue
+          bookmarks.push({ url, title: title || url })
+        }
+
+        for (const bm of bookmarks) {
+          itemQueries.create({ vaultId, type: 'link', url: bm.url, title: bm.title })
+        }
+
+        const enrichQueue = [...bookmarks.map((_, i) => i)]
+        const enriched = itemQueries.list({ vaultId }).slice(-bookmarks.length).reverse() as unknown as
+          Array<{ id: number; url: string | null; title: string | null }>
+        let enrichedCount = 0
+        const total = bookmarks.length
+
+        async function runPoolRaindrop(concurrency: number) {
+          const worker = async () => {
+            while (enrichQueue.length) {
+              const idx = enrichQueue.shift()!
+              const item = enriched[idx]
+              if (!item?.url) continue
+              try {
+                const meta = await fetchUrlMetadata(item.url)
+                itemQueries.update(item.id, {
+                  title: (meta.title !== item.url ? meta.title : undefined) || item.title || undefined,
+                  content: meta.description,
+                  favicon: meta.favicon,
+                  readingTime: meta.readingTime,
+                  imagePath: meta.thumbnailPath
+                })
+              } catch { /* skip */ }
+              enrichedCount++
+              sendToRenderer('bookmarks:progress', { done: enrichedCount, total })
+            }
+          }
+          await Promise.all(Array.from({ length: concurrency }, worker))
+          sendToRenderer('bookmarks:progress', { done: total, total, finished: true })
+        }
+
+        runPoolRaindrop(5).catch(console.error)
+        return { count: bookmarks.length }
+      }
+    }
+
+    // HTML bookmarks (default)
+    const bookmarks = parseNetscapeBookmarks(text)
 
     // Bulk insert without enrichment first — fast
     for (const bm of bookmarks) {
@@ -379,113 +484,7 @@ export function registerHandlers(): void {
     claudeApiKey?: string
     geminiApiKey?: string
   }) => {
-    const { text, provider, ollamaUrl = 'http://localhost:11434', ollamaModel = 'llama3', claudeApiKey = '' } = params
-    const prompt = `Summarize the following content in 2-3 concise sentences:\n\n${text.slice(0, 4000)}`
-
-    if (provider === 'ollama') {
-      return await new Promise<{ summary?: string; error?: string }>((resolve) => {
-        let parsedUrl: URL
-        try { parsedUrl = new URL(`${ollamaUrl}/api/generate`) }
-        catch { resolve({ error: 'Invalid Ollama URL' }); return }
-
-        const body = JSON.stringify({ model: ollamaModel, prompt, stream: false })
-        const options = {
-          hostname: parsedUrl.hostname,
-          port: parseInt(parsedUrl.port || '11434'),
-          path: parsedUrl.pathname,
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
-        }
-        const req = http.request(options, (res) => {
-          let data = ''
-          res.on('data', (c: Buffer) => { data += c.toString() })
-          res.on('end', () => {
-            try { resolve({ summary: JSON.parse(data).response }) }
-            catch { resolve({ error: 'Invalid response from Ollama' }) }
-          })
-        })
-        req.on('error', (err) => resolve({ error: err.message }))
-        req.setTimeout(30000, () => { req.destroy(); resolve({ error: 'Timeout — is Ollama running?' }) })
-        req.write(body)
-        req.end()
-      })
-    }
-
-    if (provider === 'gemini') {
-      const geminiApiKey = params.geminiApiKey ?? ''
-      if (!geminiApiKey) return { error: 'No Gemini API key configured' }
-      return await new Promise<{ summary?: string; error?: string }>((resolve) => {
-        const body = JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-        const apiPath = `/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(geminiApiKey)}`
-        const options = {
-          hostname: 'generativelanguage.googleapis.com',
-          path: apiPath,
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
-        }
-        const req = https.request(options, (res) => {
-          let data = ''
-          res.on('data', (c: Buffer) => { data += c.toString() })
-          res.on('end', () => {
-            try {
-              const json = JSON.parse(data)
-              if (json.error) {
-                resolve({ error: `Gemini: ${json.error.message ?? json.error.status ?? 'Unknown error'}` })
-                return
-              }
-              const text = json.candidates?.[0]?.content?.parts?.[0]?.text
-              if (!text) resolve({ error: 'Gemini returned no content — check your API key and quota' })
-              else resolve({ summary: text })
-            } catch { resolve({ error: 'Invalid response from Gemini' }) }
-          })
-        })
-        req.on('error', (err) => resolve({ error: err.message }))
-        req.setTimeout(30000, () => { req.destroy(); resolve({ error: 'Timeout' }) })
-        req.write(body)
-        req.end()
-      })
-    }
-
-    if (provider === 'claude') {
-      if (!claudeApiKey) return { error: 'No Claude API key configured' }
-      return await new Promise<{ summary?: string; error?: string }>((resolve) => {
-        const body = JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 256,
-          messages: [{ role: 'user', content: prompt }]
-        })
-        const options = {
-          hostname: 'api.anthropic.com',
-          path: '/v1/messages',
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(body),
-            'x-api-key': claudeApiKey,
-            'anthropic-version': '2023-06-01'
-          }
-        }
-        const req = https.request(options, (res) => {
-          let data = ''
-          res.on('data', (c: Buffer) => { data += c.toString() })
-          res.on('end', () => {
-            try {
-              const json = JSON.parse(data)
-              if (json.error) { resolve({ error: `Claude: ${json.error.message ?? json.error.type ?? 'Unknown error'}` }); return }
-              const text = json.content?.[0]?.text
-              if (!text) resolve({ error: 'Claude returned no content — check your API key' })
-              else resolve({ summary: text })
-            } catch { resolve({ error: 'Invalid response from Claude' }) }
-          })
-        })
-        req.on('error', (err) => resolve({ error: err.message }))
-        req.setTimeout(30000, () => { req.destroy(); resolve({ error: 'Timeout' }) })
-        req.write(body)
-        req.end()
-      })
-    }
-
-    return { error: 'No AI provider configured' }
+    return performSummarize(params)
   })
 
   // ── Item move / copy ─────────────────────────────────────────────────────────
@@ -504,6 +503,146 @@ export function registerHandlers(): void {
   ipcMain.handle('item:folder-counts', (_e, vaultId: number) =>
     itemQueries.folderCounts(vaultId)
   )
+}
+
+// ── CSV parser helper ─────────────────────────────────────────────────────────
+
+function parseCsvRow(line: string): string[] {
+  const result: string[] = []
+  let cur = '', inQuote = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQuote && line[i + 1] === '"') { cur += '"'; i++ }
+      else inQuote = !inQuote
+    } else if (ch === ',' && !inQuote) {
+      result.push(cur)
+      cur = ''
+    } else {
+      cur += ch
+    }
+  }
+  result.push(cur)
+  return result
+}
+
+// ── AI summarize (extracted for reuse) ───────────────────────────────────────
+
+export async function performSummarize(params: {
+  text: string
+  provider: string
+  ollamaUrl?: string
+  ollamaModel?: string
+  claudeApiKey?: string
+  geminiApiKey?: string
+}): Promise<{ summary?: string; error?: string }> {
+  const { text, provider, ollamaUrl = 'http://localhost:11434', ollamaModel = 'llama3', claudeApiKey = '' } = params
+  const prompt = `Summarize the following content in 2-3 concise sentences:\n\n${text.slice(0, 4000)}`
+
+  if (provider === 'ollama') {
+    return await new Promise<{ summary?: string; error?: string }>((resolve) => {
+      let parsedUrl: URL
+      try { parsedUrl = new URL(`${ollamaUrl}/api/generate`) }
+      catch { resolve({ error: 'Invalid Ollama URL' }); return }
+
+      const body = JSON.stringify({ model: ollamaModel, prompt, stream: false })
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parseInt(parsedUrl.port || '11434'),
+        path: parsedUrl.pathname,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+      }
+      const req = http.request(options, (res) => {
+        let data = ''
+        res.on('data', (c: Buffer) => { data += c.toString() })
+        res.on('end', () => {
+          try { resolve({ summary: JSON.parse(data).response }) }
+          catch { resolve({ error: 'Invalid response from Ollama' }) }
+        })
+      })
+      req.on('error', (err) => resolve({ error: err.message }))
+      req.setTimeout(30000, () => { req.destroy(); resolve({ error: 'Timeout — is Ollama running?' }) })
+      req.write(body)
+      req.end()
+    })
+  }
+
+  if (provider === 'gemini') {
+    const geminiApiKey = params.geminiApiKey ?? ''
+    if (!geminiApiKey) return { error: 'No Gemini API key configured' }
+    return await new Promise<{ summary?: string; error?: string }>((resolve) => {
+      const body = JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      const apiPath = `/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(geminiApiKey)}`
+      const options = {
+        hostname: 'generativelanguage.googleapis.com',
+        path: apiPath,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+      }
+      const req = https.request(options, (res) => {
+        let data = ''
+        res.on('data', (c: Buffer) => { data += c.toString() })
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data)
+            if (json.error) {
+              resolve({ error: `Gemini: ${json.error.message ?? json.error.status ?? 'Unknown error'}` })
+              return
+            }
+            const text = json.candidates?.[0]?.content?.parts?.[0]?.text
+            if (!text) resolve({ error: 'Gemini returned no content — check your API key and quota' })
+            else resolve({ summary: text })
+          } catch { resolve({ error: 'Invalid response from Gemini' }) }
+        })
+      })
+      req.on('error', (err) => resolve({ error: err.message }))
+      req.setTimeout(30000, () => { req.destroy(); resolve({ error: 'Timeout' }) })
+      req.write(body)
+      req.end()
+    })
+  }
+
+  if (provider === 'claude') {
+    if (!claudeApiKey) return { error: 'No Claude API key configured' }
+    return await new Promise<{ summary?: string; error?: string }>((resolve) => {
+      const body = JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 256,
+        messages: [{ role: 'user', content: prompt }]
+      })
+      const options = {
+        hostname: 'api.anthropic.com',
+        path: '/v1/messages',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+          'x-api-key': claudeApiKey,
+          'anthropic-version': '2023-06-01'
+        }
+      }
+      const req = https.request(options, (res) => {
+        let data = ''
+        res.on('data', (c: Buffer) => { data += c.toString() })
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data)
+            if (json.error) { resolve({ error: `Claude: ${json.error.message ?? json.error.type ?? 'Unknown error'}` }); return }
+            const text = json.content?.[0]?.text
+            if (!text) resolve({ error: 'Claude returned no content — check your API key' })
+            else resolve({ summary: text })
+          } catch { resolve({ error: 'Invalid response from Claude' }) }
+        })
+      })
+      req.on('error', (err) => resolve({ error: err.message }))
+      req.setTimeout(30000, () => { req.destroy(); resolve({ error: 'Timeout' }) })
+      req.write(body)
+      req.end()
+    })
+  }
+
+  return { error: 'No AI provider configured' }
 }
 
 // ── Reader window ─────────────────────────────────────────────────────────────

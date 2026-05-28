@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 import updaterPkg from 'electron-updater'
 const { autoUpdater } = updaterPkg
-import { initDb, saveDb } from './db'
+import { initDb, saveDb, itemQueries } from './db'
 import { registerHandlers, setNeedsPassword } from './handlers'
 import { startLocalServer } from './server'
 import { setMainWindow, sendToRenderer } from './window'
@@ -15,6 +15,7 @@ import { shutdownOcrWorker } from './ocr'
 import { loadSettings, saveSettings } from './settings'
 import { exportBackup } from './backup'
 import { createCaptureWindow, registerCaptureShortcut, unregisterCaptureShortcut } from './capture'
+import { startSyncWatcher, stopSyncWatcher } from './syncFolder'
 import icon from '../../resources/icon.png?asset'
 
 protocol.registerSchemesAsPrivileged([
@@ -22,6 +23,11 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 nativeTheme.themeSource = 'dark'
+
+// Prevent a second instance from starting — show the existing window instead
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+}
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -172,6 +178,27 @@ function setupAutoUpdater(): void {
   setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 4 * 60 * 60 * 1000)
 }
 
+// ── Scheduled tasks ───────────────────────────────────────────────────────────
+function runScheduledTasks(): void {
+  const settings = loadSettings()
+  if (settings.autoArchiveEnabled && settings.autoArchiveAfterDays > 0) {
+    const n = itemQueries.archiveOldUnread(settings.autoArchiveAfterDays)
+    if (n > 0) { console.log(`[scheduled] Auto-archived ${n} old unread items`); sendToRenderer('item:refresh', {}) }
+  }
+  if (settings.autopurgeDeadLinksEnabled && settings.autopurgeDeadLinksAfterDays > 0) {
+    const n = itemQueries.purgeDeadLinks(settings.autopurgeDeadLinksAfterDays)
+    if (n > 0) { console.log(`[scheduled] Purged ${n} dead links`); sendToRenderer('item:refresh', {}) }
+  }
+}
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
+})
+
 app.whenReady().then(async () => {
   protocol.handle('hoard', (request) => {
     let filePath = request.url.slice('hoard://'.length)
@@ -196,6 +223,14 @@ app.whenReady().then(async () => {
   // Re-check auto-backup every 12 hours while the app is running
   setInterval(runAutoBackupIfNeeded, 12 * 60 * 60 * 1000)
 
+  // Sync folder watcher
+  const { syncFolderEnabled, syncFolderPath } = loadSettings()
+  if (syncFolderEnabled && syncFolderPath) startSyncWatcher(syncFolderPath)
+
+  // Scheduled tasks (run once at startup, then every 24h)
+  runScheduledTasks()
+  setInterval(runScheduledTasks, 24 * 60 * 60 * 1000)
+
   app.on('activate', () => {
     if (mainWindow) {
       mainWindow.show()
@@ -208,6 +243,7 @@ app.whenReady().then(async () => {
 // Save DB before quitting (handles force-quit / system shutdown)
 app.on('before-quit', () => {
   unregisterCaptureShortcut()
+  stopSyncWatcher()
   try { saveDb() } catch { /* ignore */ }
   shutdownOcrWorker().catch(() => {})
 })

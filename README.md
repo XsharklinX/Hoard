@@ -46,9 +46,9 @@
 ## 🛠️ Tech Stack / Tecnologías
 
 - **Frontend**: [React](https://reactjs.org/) + [Vite](https://vitejs.dev/)
-- **Desktop Framework**: [Electron](https://www.electronjs.org/)
+- **Desktop Framework**: [Electron 29](https://www.electronjs.org/)
 - **Styling**: [Tailwind CSS](https://tailwindcss.com/) + [Radix UI](https://www.radix-ui.com/)
-- **Database**: [SQLite (sql.js)](https://sql.js.org/)
+- **Database**: [SQLite (better-sqlite3)](https://github.com/WiseLibs/better-sqlite3)
 - **OCR Engine**: [Tesseract.js](https://tesseract.projectnaptha.com/)
 
 ---

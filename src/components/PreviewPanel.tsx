@@ -44,7 +44,7 @@ SyntaxHighlighter.registerLanguage('swift',      swift)
 SyntaxHighlighter.registerLanguage('kotlin',     kotlin)
 import { useStore } from '../store'
 import { useT } from '../i18n'
-import { formatDate, cn, toFileUrl, getDomain } from '../lib/utils'
+import { formatDate, formatRelativeDate, cn, toFileUrl, getDomain } from '../lib/utils'
 import { confirm } from '../lib/confirm'
 import { toast } from '../lib/toast'
 import { NoteEditor } from './NoteEditor'
@@ -65,32 +65,48 @@ interface PreviewPanelProps {
 
 export function PreviewPanel({ onEdit }: PreviewPanelProps) {
   const { selectedItem, pinItem, deleteItem, duplicateItem, selectItem, selectType, updateItem, settings, setReadStatus, openLightbox } = useStore()
+  const autoSummary = useStore(s => s.autoSummaries[s.selectedItem?.id ?? -1])
   const t = useT()
   const [copied, setCopied]           = useState(false)
   const [faviconError, setFaviconError] = useState(false)
   const [imgError,    setImgError]    = useState(false)
   const [isEditing, setIsEditing]     = useState(false)
   const [editContent, setEditContent] = useState('')
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleValue,   setTitleValue]   = useState('')
   const [aiSummary,   setAiSummary]   = useState<string | null>(null)
   const [aiLoading,   setAiLoading]   = useState(false)
   const [aiError,     setAiError]     = useState<string | null>(null)
   const [aiExpanded,  setAiExpanded]  = useState(true)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [versions,    setVersions]    = useState<Array<{ id: number; created_at: number }>>([])
+  const [saveStatus,  setSaveStatus]  = useState<'idle' | 'saving' | 'saved'>('idle')
   const editCountRef = useRef(0)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   if (!selectedItem) return null
   const item = selectedItem
+
+  const wordCount = item.type === 'note' && item.content
+    ? item.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().split(/\s+/).filter(Boolean).length
+    : 0
 
   React.useEffect(() => {
     setFaviconError(false)
     setImgError(false)
     setIsEditing(false)
+    setEditingTitle(false)
     setAiSummary(null)
     setAiError(null)
     setHistoryOpen(false)
+    setSaveStatus('idle')
     editCountRef.current = 0
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
   }, [item.id])
+
+  React.useEffect(() => {
+    if (autoSummary) { setAiSummary(autoSummary); setAiExpanded(true) }
+  }, [autoSummary])
 
   const handleSummarize = async () => {
     if (aiLoading) return
@@ -120,15 +136,25 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
     else toast.info('Item not found in current vault')
   }
 
-  const handleSaveEdit = async (content: string) => {
-    if (content !== item.content) {
+  const handleNoteChange = (content: string) => {
+    setEditContent(content)
+    if (content === item.content) return
+    setSaveStatus('saving')
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(async () => {
       editCountRef.current++
-      // Save a snapshot every 10 edits
       if (editCountRef.current % 10 === 0) {
         window.api.items.versionSave(item.id, item.content ?? '').catch(console.error)
       }
       await updateItem(item.id, { content })
-    }
+      setSaveStatus('saved')
+      saveTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
+    }, 800)
+  }
+
+  const handleSaveEdit = async () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    setSaveStatus('idle')
     setIsEditing(false)
   }
 
@@ -318,11 +344,33 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
               </div>
             )
           )}
-          <h2 className="text-sm font-semibold text-text-primary leading-snug">
-            {item.title || (item.url ? getDomain(item.url) : 'Untitled')}
-          </h2>
+          {editingTitle ? (
+            <input
+              autoFocus
+              value={titleValue}
+              onChange={(e) => setTitleValue(e.target.value)}
+              onBlur={async () => {
+                const val = titleValue.trim()
+                if (val && val !== item.title) await updateItem(item.id, { title: val })
+                setEditingTitle(false)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur()
+                if (e.key === 'Escape') setEditingTitle(false)
+              }}
+              className="w-full text-sm font-semibold text-text-primary bg-card border border-gold/40 rounded-md px-2 py-0.5 outline-none focus:ring-1 focus:ring-gold/30"
+            />
+          ) : (
+            <h2
+              className="text-sm font-semibold text-text-primary leading-snug cursor-text hover:text-gold transition-colors"
+              onDoubleClick={() => { setTitleValue(item.title ?? ''); setEditingTitle(true) }}
+              title="Double-click to edit title"
+            >
+              {item.title || (item.url ? getDomain(item.url) : 'Untitled')}
+            </h2>
+          )}
           {item.type === 'link' && item.url && <p className="text-[11px] text-text-muted truncate">{getDomain(item.url)}</p>}
-          <p className="text-[11px] text-text-muted">{formatDate(item.created_at)}</p>
+          <p className="text-[11px] text-text-muted">{formatRelativeDate(item.created_at)}</p>
         </div>
 
         {/* Reading time */}
@@ -373,15 +421,28 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
         {item.type === 'note' && (
           <div onDoubleClick={() => { if (!isEditing) { setEditContent(item.content ?? ''); setIsEditing(true) } }}>
             {isEditing ? (
-              <NoteEditor
-                content={editContent}
-                placeholder="Write your note…"
-                onBlur={handleSaveEdit}
-                onChange={setEditContent}
-              />
+              <div className="flex flex-col gap-1">
+                <NoteEditor
+                  content={editContent}
+                  placeholder="Write your note…"
+                  onBlur={handleSaveEdit}
+                  onChange={handleNoteChange}
+                />
+                {saveStatus !== 'idle' && (
+                  <p className={cn(
+                    'text-[10px] text-right transition-opacity',
+                    saveStatus === 'saving' ? 'text-text-muted' : 'text-emerald-400'
+                  )}>
+                    {saveStatus === 'saving' ? 'saving…' : '✓ saved'}
+                  </p>
+                )}
+              </div>
             ) : (
               <div className="cursor-text hover:bg-white/5 p-1 -m-1 rounded transition-colors" title="Double click to edit">
                 <NoteEditor content={item.content ?? ''} readOnly onMentionClick={handleMentionClick} />
+                {wordCount > 0 && (
+                  <p className="text-[10px] text-text-muted mt-1.5 text-right">{wordCount} words</p>
+                )}
               </div>
             )}
           </div>
@@ -419,7 +480,7 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
                 className="w-full h-48 bg-black/40 font-mono text-[11px] text-text-primary p-3 rounded-lg border border-gold/50 focus:outline-none focus:ring-1 focus:ring-gold/50 resize-y"
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
-                onBlur={() => handleSaveEdit(editContent)}
+                onBlur={async () => { await updateItem(item.id, { content: editContent }); setIsEditing(false) }}
                 onKeyDown={(e) => { if (e.key === 'Escape') setIsEditing(false) }}
               />
             ) : (

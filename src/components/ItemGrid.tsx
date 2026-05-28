@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Search, Plus, X, Trash2, MoveRight, CheckSquare, Square, ArrowUpDown, CalendarDays, Download, Tag, LayoutGrid, List, Globe, BookOpen, CheckCheck } from 'lucide-react'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { Search, Plus, X, Trash2, MoveRight, CheckSquare, Square, ArrowUpDown, CalendarDays, Download, Tag, LayoutGrid, List, Globe, BookOpen, CheckCheck, Clock, Folder as FolderIcon, Link, FileText, Image, Code, Zap } from 'lucide-react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Popover from '@radix-ui/react-popover'
 import * as Tooltip from '@radix-ui/react-tooltip'
@@ -55,7 +56,33 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
 
   // Local search input state — debounced before hitting store
   const [localSearch, setLocalSearch] = useState(searchQuery)
-  const debouncedSearch = useDebounce(localSearch, 300)
+  const [searchFocused, setSearchFocused] = useState(false)
+  const [searchHistory, setSearchHistory] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('hoard:searchHistory') ?? '[]') } catch { return [] }
+  })
+
+  const saveToHistory = (query: string) => {
+    const trimmed = query.trim()
+    if (!trimmed) return
+    const next = [trimmed, ...searchHistory.filter((h) => h !== trimmed)].slice(0, 10)
+    setSearchHistory(next)
+    localStorage.setItem('hoard:searchHistory', JSON.stringify(next))
+  }
+
+  // Parse quick-filter tokens (type:, domain:, tag:) from the raw search string
+  const quickFilters = useMemo(() => {
+    const typeMatch   = /\btype:(\w+)/i.exec(localSearch)
+    const domainMatch = /\bdomain:([\w.-]+)/i.exec(localSearch)
+    const tagMatch    = /\btag:([^\s]+)/i.exec(localSearch)
+    const cleanQuery  = localSearch
+      .replace(/\btype:\w+/gi, '')
+      .replace(/\bdomain:[\w.-]+/gi, '')
+      .replace(/\btag:[^\s]+/gi, '')
+      .trim()
+    return { type: typeMatch?.[1] ?? null, domain: domainMatch?.[1] ?? null, tag: tagMatch?.[1] ?? null, cleanQuery }
+  }, [localSearch])
+
+  const debouncedClean = useDebounce(quickFilters.cleanQuery, 300)
 
   // Date filter
   type DateFilter = 'all' | 'week' | 'month' | 'year'
@@ -94,8 +121,23 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
     if (archiveFilter !== 'all') {
       list = list.filter((i) => i.archive_status === archiveFilter)
     }
+    if (quickFilters.type) {
+      const qt = quickFilters.type.toLowerCase()
+      list = list.filter((i) => i.type === qt)
+    }
+    if (quickFilters.domain) {
+      const qd = quickFilters.domain.toLowerCase()
+      list = list.filter((i) => {
+        if (!i.url) return false
+        try { return new URL(i.url).hostname.replace(/^www\./, '').includes(qd) } catch { return false }
+      })
+    }
+    if (quickFilters.tag) {
+      const qt = quickFilters.tag.toLowerCase()
+      list = list.filter((i) => i.tags.some((tg) => tg.name.toLowerCase().includes(qt)))
+    }
     return list
-  }, [items, dateFilter, domainFilter, archiveFilter])
+  }, [items, dateFilter, domainFilter, archiveFilter, quickFilters])
 
   // Unread reading time (for banner when selectedType === 'unread')
   const unreadReadingTime = useMemo(() => {
@@ -103,7 +145,7 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
     return filteredItems.reduce((sum, i) => sum + (i.type === 'link' ? (i.reading_time ?? 0) : 0), 0)
   }, [filteredItems, selectedType])
 
-  useEffect(() => { setSearch(debouncedSearch) }, [debouncedSearch])
+  useEffect(() => { setSearch(debouncedClean) }, [debouncedClean])
   useEffect(() => { setLocalSearch(searchQuery) }, [searchQuery]) // sync on external clear
 
   const heading = selectedTag
@@ -386,12 +428,15 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
 
           {/* Search */}
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted pointer-events-none" />
             <input
               type="text"
               placeholder={t.searchPlaceholder}
               value={localSearch}
               onChange={(e) => setLocalSearch(e.target.value)}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && localSearch.trim()) saveToHistory(localSearch.trim()) }}
               className="w-48 pl-8 pr-7 py-1.5 text-sm rounded-lg bg-card border border-border text-text-primary placeholder-text-muted focus:outline-none focus:border-gold/50 focus:ring-1 focus:ring-gold/20 transition-colors"
             />
             {localSearch && (
@@ -401,6 +446,21 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
               >
                 <X className="w-3 h-3" />
               </button>
+            )}
+            {searchFocused && !localSearch && searchHistory.length > 0 && (
+              <div className="absolute top-full right-0 mt-1 w-56 z-[300] bg-surface border border-border rounded-xl shadow-2xl py-1.5 overflow-hidden">
+                <p className="px-3 py-1 text-[10px] text-text-muted uppercase tracking-widest font-semibold">Recent searches</p>
+                {searchHistory.map((h) => (
+                  <button
+                    key={h}
+                    onMouseDown={() => { setLocalSearch(h); saveToHistory(h) }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-card hover:text-text-primary transition-colors text-left"
+                  >
+                    <Clock className="w-3 h-3 text-text-muted shrink-0" />
+                    <span className="truncate">{h}</span>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
 
@@ -507,7 +567,7 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
                 </Popover.Portal>
               </Popover.Root>
               <button
-                onClick={() => bulkSetReadStatus(true)}
+                onClick={() => bulkSetReadStatus('read')}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-card border border-border text-text-secondary hover:text-text-primary transition-colors"
               >
                 <CheckCheck className="w-3.5 h-3.5" />
@@ -552,24 +612,52 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
           </div>
         )}
 
+        {/* Quick filter chips */}
+        {(quickFilters.type || quickFilters.domain || quickFilters.tag) && (
+          <div className="flex items-center gap-2 px-6 py-1.5 bg-surface border-b border-border/50 shrink-0 flex-wrap">
+            <span className="text-[10px] text-text-muted">Filters:</span>
+            {quickFilters.type && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gold/10 text-gold border border-gold/20">
+                type:{quickFilters.type}
+              </span>
+            )}
+            {quickFilters.domain && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-400/10 text-sky-400 border border-sky-400/20">
+                domain:{quickFilters.domain}
+              </span>
+            )}
+            {quickFilters.tag && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-400/10 text-emerald-400 border border-emerald-400/20">
+                tag:{quickFilters.tag}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Content */}
-        {settings.viewMode === 'list' ? (
+        {!selectedVault ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center p-8">
+            <p className="text-4xl">🏰</p>
+            <p className="text-text-secondary text-sm font-medium">No vault selected</p>
+            <p className="text-text-muted text-xs">Create or select a vault from the sidebar to get started</p>
+          </div>
+        ) : settings.viewMode === 'list' ? (
           <div ref={scrollParentRef} className="flex-1 overflow-y-auto">
             {isLoading ? (
               <SkeletonList />
             ) : filteredItems.length === 0 ? (
-              <div className="p-6"><EmptyState hasSearch={localSearch.length > 0} onAdd={onAddItem} /></div>
-            ) : (
-              <div className="flex flex-col">
-                {filteredItems.map((item) => (
-                  <ItemRow
-                    key={item.id}
-                    item={item}
-                    onMove={onMoveItems}
-                    onEdit={() => onEditItem(item)}
-                  />
-                ))}
+              <div className="p-6">
+                <EmptyState
+                  hasSearch={localSearch.length > 0}
+                  searchQuery={localSearch}
+                  selectedFolder={selectedFolder}
+                  selectedTag={selectedTag}
+                  selectedType={selectedType}
+                  onAdd={onAddItem}
+                />
               </div>
+            ) : (
+              <VirtualList items={filteredItems} scrollRef={scrollParentRef} onMove={onMoveItems} onEdit={onEditItem} />
             )}
           </div>
         ) : (
@@ -577,7 +665,14 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
             {isLoading ? (
               <SkeletonGrid compact={settings.compactView} />
             ) : filteredItems.length === 0 ? (
-              <EmptyState hasSearch={localSearch.length > 0} onAdd={onAddItem} />
+              <EmptyState
+                hasSearch={localSearch.length > 0}
+                searchQuery={localSearch}
+                selectedFolder={selectedFolder}
+                selectedTag={selectedTag}
+                selectedType={selectedType}
+                onAdd={onAddItem}
+              />
             ) : (
               <Masonry
                 breakpointCols={{ default: colCount, 1400: colCount > 4 ? 4 : colCount, 1100: 3, 700: 2, 500: 1 }}
@@ -657,25 +752,169 @@ function SkeletonGrid({ compact }: { compact: boolean }) {
   )
 }
 
-// ── Empty state ───────────────────────────────────────────────────────────────
-function EmptyState({ hasSearch, onAdd }: { hasSearch: boolean; onAdd: () => void }) {
-  const t = useT()
+// ── Virtual list view ─────────────────────────────────────────────────────────
+function VirtualList({
+  items,
+  scrollRef,
+  onMove,
+  onEdit,
+}: {
+  items: import('../types').Item[]
+  scrollRef: React.RefObject<HTMLDivElement>
+  onMove: () => void
+  onEdit: (item: import('../types').Item) => void
+}) {
+  const virtualizer = useVirtualizer({
+    count:            items.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize:     () => 48,
+    overscan:         8,
+  })
+
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
-      {hasSearch ? (
-        <p className="text-text-muted text-sm">{t.noResults}</p>
-      ) : (
-        <>
-          <p className="text-4xl">🐉</p>
-          <p className="text-text-secondary text-sm">{t.emptyHoard}</p>
-          <button
-            onClick={onAdd}
-            className="mt-1 px-4 py-2 rounded-lg bg-gold text-black text-sm font-medium hover:bg-gold-light transition-colors"
-          >
-            {t.addFirstItem}
-          </button>
-        </>
-      )}
+    <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
+      {virtualizer.getVirtualItems().map((vRow) => (
+        <div
+          key={items[vRow.index].id}
+          style={{
+            position:  'absolute',
+            top:       0,
+            left:      0,
+            width:     '100%',
+            transform: `translateY(${vRow.start}px)`,
+          }}
+        >
+          <ItemRow
+            item={items[vRow.index]}
+            onMove={onMove}
+            onEdit={() => onEdit(items[vRow.index])}
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Empty state ───────────────────────────────────────────────────────────────
+interface EmptyStateProps {
+  hasSearch:      boolean
+  searchQuery:    string
+  selectedFolder: import('../types').Folder | null
+  selectedTag:    import('../types').Tag | null
+  selectedType:   string
+  onAdd:          () => void
+}
+
+function EmptyState({ hasSearch, searchQuery, selectedFolder, selectedTag, selectedType, onAdd }: EmptyStateProps) {
+  const t = useT()
+
+  if (hasSearch) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 text-center py-16">
+        <div className="w-12 h-12 rounded-2xl bg-card border border-border flex items-center justify-center">
+          <Search className="w-5 h-5 text-text-muted" />
+        </div>
+        <div>
+          <p className="text-text-secondary text-sm font-medium">No results for "{searchQuery}"</p>
+          <p className="text-text-muted text-xs mt-1">Try different keywords or clear the search</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (selectedFolder?.smart_query) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 text-center py-16">
+        <div className="w-12 h-12 rounded-2xl bg-gold/10 border border-gold/20 flex items-center justify-center">
+          <Zap className="w-5 h-5 text-gold" />
+        </div>
+        <div>
+          <p className="text-text-secondary text-sm font-medium">No items match this smart folder yet</p>
+          <p className="text-text-muted text-xs mt-1">Items will appear here automatically when they match the rules</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (selectedFolder) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 text-center py-16">
+        <div className="w-12 h-12 rounded-2xl bg-card border border-border flex items-center justify-center">
+          <FolderIcon className="w-5 h-5 text-text-muted" />
+        </div>
+        <div>
+          <p className="text-text-secondary text-sm font-medium">This folder is empty</p>
+          <p className="text-text-muted text-xs mt-1">Add items here or drag them from another folder</p>
+        </div>
+        <button onClick={onAdd} className="mt-1 px-4 py-2 rounded-lg bg-gold text-black text-sm font-medium hover:bg-gold-light transition-colors">
+          Add first item
+        </button>
+      </div>
+    )
+  }
+
+  if (selectedTag) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 text-center py-16">
+        <div className="w-12 h-12 rounded-2xl bg-card border border-border flex items-center justify-center">
+          <Tag className="w-5 h-5 text-text-muted" />
+        </div>
+        <div>
+          <p className="text-text-secondary text-sm font-medium">No items tagged "{selectedTag.name}"</p>
+          <p className="text-text-muted text-xs mt-1">Tag items using the tag panel in the preview or the bulk-tag button</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (selectedType === 'unread') {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 text-center py-16">
+        <p className="text-4xl">✅</p>
+        <div>
+          <p className="text-text-secondary text-sm font-medium">All caught up!</p>
+          <p className="text-text-muted text-xs mt-1">Nothing left to read. Save new links to keep your queue full.</p>
+        </div>
+      </div>
+    )
+  }
+
+  const TYPE_EMPTY: Record<string, { icon: React.ElementType; color: string; label: string; hint: string }> = {
+    link:  { icon: Link,     color: 'text-sky-400',     label: 'No links saved yet',      hint: 'Save a URL or drag a link here to get started' },
+    note:  { icon: FileText, color: 'text-emerald-400', label: 'No notes yet',             hint: 'Create a note to capture your thoughts' },
+    image: { icon: Image,    color: 'text-violet-400',  label: 'No images saved yet',      hint: 'Save images or drag image files here' },
+    code:  { icon: Code,     color: 'text-amber-400',   label: 'No code snippets yet',     hint: 'Save code snippets with syntax highlighting' },
+  }
+
+  const typeEntry = TYPE_EMPTY[selectedType]
+  if (typeEntry) {
+    const Icon = typeEntry.icon
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 text-center py-16">
+        <div className={cn('w-12 h-12 rounded-2xl bg-card border border-border flex items-center justify-center', typeEntry.color)}>
+          <Icon className="w-5 h-5" />
+        </div>
+        <div>
+          <p className="text-text-secondary text-sm font-medium">{typeEntry.label}</p>
+          <p className="text-text-muted text-xs mt-1">{typeEntry.hint}</p>
+        </div>
+        <button onClick={onAdd} className="mt-1 px-4 py-2 rounded-lg bg-gold text-black text-sm font-medium hover:bg-gold-light transition-colors">
+          {t.addFirstItem}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 text-center py-16">
+      <p className="text-4xl">🐉</p>
+      <p className="text-text-secondary text-sm">{t.emptyHoard}</p>
+      <button
+        onClick={onAdd}
+        className="mt-1 px-4 py-2 rounded-lg bg-gold text-black text-sm font-medium hover:bg-gold-light transition-colors"
+      >
+        {t.addFirstItem}
+      </button>
     </div>
   )
 }

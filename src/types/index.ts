@@ -15,6 +15,7 @@ export interface AppSettings {
   hasSeenWelcome: boolean
   theme: 'dark' | 'light' | 'midnight'
   viewMode: 'grid' | 'list'
+  sortBy: 'newest' | 'oldest' | 'az' | 'za' | 'pinned' | 'readingtime'
   aiProvider: 'none' | 'ollama' | 'claude' | 'gemini'
   aiOllamaUrl: string
   aiOllamaModel: string
@@ -22,6 +23,10 @@ export interface AppSettings {
   aiGeminiApiKey: string
   syncFolderPath: string
   syncFolderEnabled: boolean
+  autoArchiveEnabled: boolean
+  autoArchiveAfterDays: number
+  autopurgeDeadLinksEnabled: boolean
+  autopurgeDeadLinksAfterDays: number
 }
 
 export interface Vault {
@@ -137,6 +142,7 @@ declare global {
         duplicate:    (id: number) => Promise<Item>
         folderCounts: (vaultId: number) => Promise<Record<number, number>>
         searchItems:  (vaultId: number, q: string) => Promise<Array<{ id: number; title: string | null; type: string }>>
+        searchGlobal: (q: string) => Promise<Item[]>
         openReader:   (archivePath: string, title: string) => Promise<void>
         tagSelected:  (ids: number[], tagIds: number[]) => Promise<void>
         versionsList: (itemId: number) => Promise<Array<{ id: number; created_at: number }>>

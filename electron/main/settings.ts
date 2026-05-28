@@ -19,6 +19,7 @@ export interface AppSettings {
   hasSeenWelcome: boolean
   theme: 'dark' | 'light' | 'midnight'
   viewMode: 'grid' | 'list'
+  sortBy: 'newest' | 'oldest' | 'az' | 'za' | 'pinned' | 'readingtime'
   aiProvider: 'none' | 'ollama' | 'claude' | 'gemini'
   aiOllamaUrl: string
   aiOllamaModel: string
@@ -26,6 +27,10 @@ export interface AppSettings {
   aiGeminiApiKey: string
   syncFolderPath: string
   syncFolderEnabled: boolean
+  autoArchiveEnabled: boolean
+  autoArchiveAfterDays: number
+  autopurgeDeadLinksEnabled: boolean
+  autopurgeDeadLinksAfterDays: number
 }
 
 const DEFAULTS: AppSettings = {
@@ -45,13 +50,18 @@ const DEFAULTS: AppSettings = {
   hasSeenWelcome: false,
   theme: 'dark',
   viewMode: 'grid',
+  sortBy: 'newest',
   aiProvider: 'none',
   aiOllamaUrl: 'http://localhost:11434',
   aiOllamaModel: 'llama3',
   aiClaudeApiKey: '',
   aiGeminiApiKey: '',
   syncFolderPath: '',
-  syncFolderEnabled: false
+  syncFolderEnabled: false,
+  autoArchiveEnabled: false,
+  autoArchiveAfterDays: 30,
+  autopurgeDeadLinksEnabled: false,
+  autopurgeDeadLinksAfterDays: 90
 }
 
 function settingsPath(): string {
