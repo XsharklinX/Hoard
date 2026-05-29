@@ -17,6 +17,7 @@ import { ConfirmDialog } from './components/ConfirmDialog'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { ImageLightbox } from './components/ImageLightbox'
 import { ShortcutModal } from './components/ShortcutModal'
+import { GraphView } from './components/GraphView'
 import { useStore } from './store'
 import type { Vault, Item } from './types'
 
@@ -51,7 +52,8 @@ export default function App() {
   const {
     loadVaults, selectedItem, checkSecurity, appLocked, unlock, lockApp, settings, updateSettings,
     updateArchiveStatus, updateLinkStatus, selectFolder, selectTag, selectType, loadCounts, reloadFolders,
-    selectedFolder, selectedTag, selectedType, selectedVault, setAutoSummary
+    selectedFolder, selectedTag, selectedType, selectedVault, setAutoSummary,
+    graphOpen, closeGraph
   } = useStore()
 
   const [addOpen,      setAddOpen]      = useState(false)
@@ -195,6 +197,13 @@ export default function App() {
           setShortcutsOpen((v) => !v)
         }
       }
+      if (e.key === 'g' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const tag = (e.target as HTMLElement).tagName
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+          e.preventDefault()
+          useStore.getState().graphOpen ? closeGraph() : useStore.getState().openGraph()
+        }
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
@@ -249,6 +258,8 @@ export default function App() {
     </Tooltip.Provider>
 
     <ImageLightbox />
+
+    {graphOpen && <GraphView onClose={closeGraph} />}
 
     {showWelcome && (
       <WelcomeScreen onComplete={async () => {

@@ -93,6 +93,11 @@ interface HoardStore {
   autoSummaries: Record<number, string>
   setAutoSummary: (id: number, summary: string) => void
 
+  // ── Graph state ───────────────────────────────────────────────────────────
+  graphOpen: boolean
+  openGraph:  () => void
+  closeGraph: () => void
+
   // ── Feed state ────────────────────────────────────────────────────────────
   feeds:            Feed[]
   selectedFeed:     Feed | null
@@ -161,6 +166,9 @@ export const useStore = create<HoardStore>((set, get) => ({
   folderCounts:     {},
   selectedIds:      new Set(),
   autoSummaries:    {},
+  graphOpen:        false,
+  openGraph:        () => set({ graphOpen: true }),
+  closeGraph:       () => set({ graphOpen: false }),
   feeds:            [],
   selectedFeed:     null,
   feedUnreadCounts: {},

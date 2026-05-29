@@ -2,7 +2,6 @@ import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
 import { itemQueries, vaultQueries } from './db'
-import { fetchUrlMetadata } from './handlers'
 import { sendToRenderer } from './window'
 
 let watcher: fs.FSWatcher | null = null
@@ -36,10 +35,25 @@ function getDefaultVaultId(): number {
   return vaults[0]?.id ?? 1
 }
 
+async function fetchTitle(rawUrl: string): Promise<{ title: string; favicon: string }> {
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 8000)
+    const res    = await fetch(rawUrl, { signal: controller.signal, headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'text/html' } })
+    clearTimeout(timer)
+    const html   = await res.text()
+    const title  = html.match(/<title[^>]*>([^<]{1,200})<\/title>/i)?.[1]?.trim() ?? rawUrl
+    const host   = new URL(rawUrl).hostname
+    return { title, favicon: `https://www.google.com/s2/favicons?domain=${host}&sz=32` }
+  } catch {
+    return { title: rawUrl, favicon: '' }
+  }
+}
+
 async function importUrl(url: string, vaultId: number): Promise<void> {
   try {
-    const meta = await fetchUrlMetadata(url)
-    itemQueries.create({ vaultId, type: 'link', url, title: meta.title, content: meta.description, favicon: meta.favicon, readingTime: meta.readingTime, imagePath: meta.thumbnailPath })
+    const meta = await fetchTitle(url)
+    itemQueries.create({ vaultId, type: 'link', url, title: meta.title, favicon: meta.favicon })
     sendToRenderer('item:refresh', {})
   } catch (err) {
     console.error('[sync] Failed to import', url, err)
@@ -50,7 +64,7 @@ async function processFile(filePath: string, vaultId: number): Promise<void> {
   const key = path.resolve(filePath)
   if (imported.has(key)) return
   const ext = path.extname(filePath).toLowerCase()
-  if (!['.url', '.txt', '.webloc'].includes(ext)) return
+  if (ext !== '.url' && ext !== '.txt' && ext !== '.webloc') return
   try {
     const content = fs.readFileSync(filePath, 'utf-8')
     const urls: string[] = []
@@ -71,7 +85,7 @@ export function startSyncWatcher(folderPath: string): void {
   try {
     for (const f of fs.readdirSync(folderPath)) {
       const ext = path.extname(f).toLowerCase()
-      if (['.url', '.txt', '.webloc'].includes(ext)) {
+      if (ext === '.url' || ext === '.txt' || ext === '.webloc') {
         processFile(path.join(folderPath, f), vaultId).catch(console.error)
       }
     }

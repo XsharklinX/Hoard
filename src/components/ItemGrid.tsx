@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Search, Plus, X, Trash2, MoveRight, CheckSquare, Square, ArrowUpDown, CalendarDays, Download, Tag, LayoutGrid, List, Globe, BookOpen, CheckCheck, Clock, Folder as FolderIcon, Link, FileText, Image, Code, Zap } from 'lucide-react'
+import { Search, Plus, X, Trash2, MoveRight, CheckSquare, Square, ArrowUpDown, CalendarDays, Download, Tag, LayoutGrid, List, Globe, BookOpen, CheckCheck, Clock, Folder as FolderIcon, Link, FileText, Image, Code, Zap, Network } from 'lucide-react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Popover from '@radix-ui/react-popover'
 import * as Tooltip from '@radix-ui/react-tooltip'
@@ -48,6 +48,7 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
     items, searchQuery, setSearch, setSort, sortBy,
     isLoading, selectedVault, selectedFolder,
     selectedTag, settings, updateSettings, selectedIds, selectAll, clearSelection,
+    openGraph,
     deleteSelected, selectedType, selectedItem, selectItem, tags, bulkSetReadStatus
   } = useStore()
   const t = useT()
@@ -463,6 +464,23 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
               </div>
             )}
           </div>
+
+          {/* Graph view button */}
+          <Tooltip.Root>
+            <Tooltip.Trigger asChild>
+              <button
+                onClick={openGraph}
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs border bg-card border-border text-text-muted hover:text-text-primary hover:border-border transition-colors"
+              >
+                <Network className="w-3.5 h-3.5" />
+              </button>
+            </Tooltip.Trigger>
+            <Tooltip.Portal>
+              <Tooltip.Content side="bottom" sideOffset={6} className="z-[500] px-2 py-1 rounded-md text-xs bg-card border border-border text-text-primary shadow-lg">
+                Graph view
+              </Tooltip.Content>
+            </Tooltip.Portal>
+          </Tooltip.Root>
 
           {/* View mode toggle */}
           <Tooltip.Root>

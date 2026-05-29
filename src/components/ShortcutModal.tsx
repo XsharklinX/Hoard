@@ -13,6 +13,7 @@ const GROUPS = [
       { keys: ['Ctrl', 'K'],           desc: 'Command palette (all vaults)' },
       { keys: ['Ctrl', ','],           desc: 'Open settings' },
       { keys: ['?'],                   desc: 'Show this cheatsheet' },
+      { keys: ['G'],                   desc: 'Toggle graph view' },
     ]
   },
   {

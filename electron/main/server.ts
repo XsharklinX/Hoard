@@ -1,5 +1,8 @@
-import http from 'http'
-import { itemQueries, vaultQueries, folderQueries, tagQueries } from './db'
+import http  from 'http'
+import https from 'https'
+import fs from 'fs'
+import path from 'path'
+import { itemQueries, vaultQueries, folderQueries, tagQueries, getImagesDir } from './db'
 import { BrowserWindow } from 'electron'
 import { fetchUrlMetadata } from './handlers'
 import { archiveWebPage } from './archive'
@@ -324,11 +327,6 @@ async function enrichLinkInBackground(itemId: number, url: string) {
   }
 }
 
-
-import https from 'https'
-import fs from 'fs'
-import path from 'path'
-import { getImagesDir } from './db'
 
 function downloadImage(url: string): Promise<string> {
   return new Promise((resolve, reject) => {

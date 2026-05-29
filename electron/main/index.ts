@@ -1,10 +1,6 @@
 import { app, BrowserWindow, nativeTheme, protocol, net, Tray, Menu, nativeImage } from 'electron'
-import { join, dirname } from 'path'
-import { fileURLToPath } from 'url'
+import { join } from 'path'
 import fs from 'fs'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
 import updaterPkg from 'electron-updater'
 const { autoUpdater } = updaterPkg
 import { initDb, saveDb, itemQueries } from './db'
@@ -16,7 +12,7 @@ import { loadSettings, saveSettings } from './settings'
 import { exportBackup } from './backup'
 import { createCaptureWindow, registerCaptureShortcut, unregisterCaptureShortcut } from './capture'
 import { startSyncWatcher, stopSyncWatcher } from './syncFolder'
-import { startFeedPoller, stopFeedPoller } from './feedFetcher'
+import { startFeedPoller, stopFeedPoller } from './handlers'
 import icon from '../../resources/icon.png?asset'
 
 protocol.registerSchemesAsPrivileged([

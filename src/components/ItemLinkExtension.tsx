@@ -1,7 +1,7 @@
 import { ReactRenderer } from '@tiptap/react'
 import Mention from '@tiptap/extension-mention'
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
-import { Link, FileText, Image, Code } from 'lucide-react'
+import { Link, FileText, Image, Code, Quote, Paperclip } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 // ── Suggestion list popup ─────────────────────────────────────────────────────
@@ -9,7 +9,7 @@ import { cn } from '../lib/utils'
 interface SItem { id: number; title: string | null; type: string }
 
 const TYPE_ICON: Record<string, React.ElementType> = {
-  link: Link, note: FileText, image: Image, code: Code
+  link: Link, note: FileText, image: Image, code: Code, quote: Quote, file: Paperclip
 }
 
 export const SuggestionList = forwardRef<

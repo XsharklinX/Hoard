@@ -7,7 +7,8 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       lib: {
-        entry: resolve('electron/main/index.ts')
+        entry: resolve('electron/main/index.ts'),
+        formats: ['cjs']
       }
     }
   },
@@ -16,6 +17,9 @@ export default defineConfig({
     build: {
       lib: {
         entry: resolve('electron/preload/index.ts')
+      },
+      rollupOptions: {
+        external: [/^node:/, 'url', 'fs', 'path', 'http', 'https', 'events', 'stream', 'electron']
       }
     }
   },

@@ -1,9 +1,5 @@
-import { BrowserWindow, globalShortcut, app } from 'electron'
-import { join, dirname } from 'path'
-import { fileURLToPath } from 'url'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+import { BrowserWindow, globalShortcut, app, screen } from 'electron'
+import { join } from 'path'
 
 let captureWindow: BrowserWindow | null = null
 
@@ -70,7 +66,6 @@ export function registerCaptureShortcut(): void {
 function showCapture(): void {
   if (!captureWindow) return
   // Center on screen
-  const { screen } = require('electron')
   const display = screen.getPrimaryDisplay()
   const { width, height } = display.workAreaSize
   const winW = 420, winH = 320

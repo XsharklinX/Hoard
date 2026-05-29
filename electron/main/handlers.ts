@@ -2,16 +2,14 @@ import { ipcMain, shell, dialog, app, BrowserWindow } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import https from 'https'
-import http from 'http'
-import { URL } from 'url'
+import http  from 'http'
 import updaterPkg from 'electron-updater'
 const { autoUpdater } = updaterPkg
-import { JSDOM } from 'jsdom'
-import { Readability } from '@mozilla/readability'
-import { vaultQueries, folderQueries, itemQueries, tagQueries, feedQueries, getImagesDir, CreateItemData,
+import { vaultQueries, folderQueries, itemQueries, tagQueries, feedQueries, linkQueries, getImagesDir, CreateItemData,
          initDb, enableEncryption, disableEncryption, verifyPassword, hasEncryptedDb, isEncryptionEnabled,
          versionQueries, getUncheckedLinks, setLinkStatus } from './db'
-import { parseFeed, refreshFeed } from './feedFetcher'
+import { parseFeed, refreshFeed, startFeedPoller, stopFeedPoller } from './feedFetcher'
+export { startFeedPoller, stopFeedPoller }
 import { loadSettings, saveSettings } from './settings'
 import { sendToRenderer } from './window'
 import { exportBackup, importBackup } from './backup'
@@ -74,6 +72,11 @@ export function registerHandlers(): void {
   ipcMain.handle('item:versions-list',    (_e, itemId: number)       => versionQueries.list(itemId))
   ipcMain.handle('item:version-get',      (_e, versionId: number)    => versionQueries.get(versionId))
   ipcMain.handle('item:version-save',     (_e, itemId: number, content: string) => { versionQueries.save(itemId, content) })
+
+  // ── Knowledge graph ──────────────────────────────────────────────────────────
+  ipcMain.handle('item:backlinks',   (_e, id: number)      => linkQueries.backlinks(id))
+  ipcMain.handle('item:related',     (_e, id: number)      => linkQueries.related(id))
+  ipcMain.handle('item:graph-data',  (_e, vaultId: number) => linkQueries.graphData(vaultId))
 
   // ── Dead link checker ────────────────────────────────────────────────────────
   ipcMain.handle('item:check-links', async (_e, vaultId: number) => {
@@ -168,7 +171,7 @@ export function registerHandlers(): void {
     if (!fs.existsSync(srcPath)) return { cancelled: true }
     const ext  = path.extname(srcPath) || '.jpg'
     const base = path.basename(srcPath, ext)
-    const win = require('electron').BrowserWindow.getFocusedWindow()
+    const win = BrowserWindow.getFocusedWindow()
     const result = await dialog.showSaveDialog(win || undefined as any, {
       title: 'Save image',
       defaultPath: `${base}${ext}`,
@@ -182,7 +185,7 @@ export function registerHandlers(): void {
   ipcMain.handle('util:export-images', async (_e, srcPaths: string[]) => {
     const existing = srcPaths.filter((p) => fs.existsSync(p))
     if (!existing.length) return { cancelled: true }
-    const win = require('electron').BrowserWindow.getFocusedWindow()
+    const win = BrowserWindow.getFocusedWindow()
     const result = await dialog.showOpenDialog(win || undefined as any, {
       title: 'Choose folder to save images',
       properties: ['openDirectory', 'createDirectory']
@@ -229,24 +232,58 @@ export function registerHandlers(): void {
     shell.openPath(storedPath)
   })
 
-  // ── Reader (Readability) ────────────────────────────────────────────────────
+  // ── Reader (Readability via BrowserWindow) ───────────────────────────────────
   ipcMain.handle('util:extract-reader', async (_e, archivePath: string) => {
-    try {
-      let html = fs.readFileSync(archivePath, 'utf-8')
-      // Strip MHTML headers if present
-      if (html.startsWith('MIME-Version:') || html.startsWith('Content-Type: multipart')) {
-        const bodyMatch = html.match(/Content-Type: text\/html[\s\S]*?\r?\n\r?\n([\s\S]+)/i)
-        if (bodyMatch) html = bodyMatch[1]
-      }
-      const dom = new JSDOM(html, { url: 'https://localhost' })
-      const reader = new Readability(dom.window.document)
-      const article = reader.parse()
-      if (!article) return null
-      return { title: article.title, content: article.content }
-    } catch (err) {
-      console.error('Readability extraction failed:', err)
-      return null
-    }
+    return new Promise<{ title: string; content: string } | null>((resolve) => {
+      const win = new BrowserWindow({
+        show: false,
+        webPreferences: { nodeIntegration: false, contextIsolation: true, javascript: true }
+      })
+      const fileUrl = `file:///${archivePath.replace(/\\/g, '/')}`
+      const timeout = setTimeout(() => { try { win.destroy() } catch { /* */ }; resolve(null) }, 12000)
+
+      win.webContents.on('did-finish-load', async () => {
+        clearTimeout(timeout)
+        try {
+          const result = await win.webContents.executeJavaScript(`
+            (function() {
+              try {
+                const title = document.title || '';
+                // Remove nav/header/footer/aside/script/style noise
+                ['script','style','nav','header','footer','aside','iframe','noscript'].forEach(tag => {
+                  document.querySelectorAll(tag).forEach(el => el.remove());
+                });
+                const article =
+                  document.querySelector('article') ||
+                  document.querySelector('[role="main"]') ||
+                  document.querySelector('main') ||
+                  document.querySelector('.post-content,.entry-content,.article-content,.content') ||
+                  document.body;
+                const content = article ? article.innerHTML : document.body.innerHTML;
+                return { title, content: content.slice(0, 200000) };
+              } catch(e) { return null; }
+            })()
+          `)
+          win.destroy()
+          resolve(result as { title: string; content: string } | null)
+        } catch {
+          try { win.destroy() } catch { /* */ }
+          resolve(null)
+        }
+      })
+
+      win.webContents.on('did-fail-load', () => {
+        clearTimeout(timeout)
+        try { win.destroy() } catch { /* */ }
+        resolve(null)
+      })
+
+      win.loadURL(fileUrl).catch(() => {
+        clearTimeout(timeout)
+        try { win.destroy() } catch { /* */ }
+        resolve(null)
+      })
+    })
   })
 
   // ── Bookmarks import ────────────────────────────────────────────────────────

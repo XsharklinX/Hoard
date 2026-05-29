@@ -175,6 +175,9 @@ declare global {
         versionGet:   (versionId: number) => Promise<{ id: number; item_id: number; content: string; created_at: number } | null>
         versionSave:  (itemId: number, content: string) => Promise<void>
         checkLinks:   (vaultId: number) => Promise<{ checked: number }>
+        backlinks:    (id: number)      => Promise<Item[]>
+        related:      (id: number)      => Promise<Item[]>
+        graphData:    (vaultId: number) => Promise<{ nodes: Array<{ id: number; title: string | null; type: string }>; edges: Array<{ source_id: number; target_id: number }> }>
       }
       tags: {
         list: (vaultId: number) => Promise<Tag[]>

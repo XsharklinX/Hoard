@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
-import { X, ExternalLink, Pin, Trash2, Clock, Copy, Check, Link as LinkIcon, Archive, Loader2, AlertCircle, Pencil, Files, Download, BookOpen, Circle, Sparkles, ChevronDown, ChevronUp, Maximize2, History, RotateCcw, Quote, Paperclip, BookOpenText } from 'lucide-react'
+import { X, ExternalLink, Pin, Trash2, Clock, Copy, Check, Link as LinkIcon, Archive, Loader2, AlertCircle, Pencil, Files, Download, BookOpen, Circle, Sparkles, ChevronDown, ChevronUp, Maximize2, History, RotateCcw, Quote, Paperclip, BookOpenText, Network, GitBranch } from 'lucide-react'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -86,6 +86,10 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
   const [readerLoading,  setReaderLoading]  = useState(false)
   const [readerMode,     setReaderMode]     = useState(false)
   const [editAttrib,     setEditAttrib]     = useState('')
+  const [backlinks,      setBacklinks]      = useState<Item[]>([])
+  const [related,        setRelated]        = useState<Item[]>([])
+  const [backlinksOpen,  setBacklinksOpen]  = useState(true)
+  const [relatedOpen,    setRelatedOpen]    = useState(true)
   const editCountRef = useRef(0)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -107,8 +111,14 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
     setSaveStatus('idle')
     setReaderContent(null)
     setReaderMode(false)
+    setBacklinks([])
+    setRelated([])
     editCountRef.current = 0
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+
+    // Fetch backlinks + related in background
+    window.api.items.backlinks(item.id).then(setBacklinks).catch(() => {})
+    window.api.items.related(item.id).then(setRelated).catch(() => {})
   }, [item.id])
 
   React.useEffect(() => {
@@ -621,6 +631,69 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
                 >
                   Save
                 </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Backlinks */}
+        {backlinks.length > 0 && (
+          <div>
+            <button
+              onClick={() => setBacklinksOpen((v) => !v)}
+              className="flex items-center justify-between w-full text-[10px] text-text-muted uppercase tracking-widest mb-1.5 hover:text-text-secondary transition-colors"
+            >
+              <span className="flex items-center gap-1.5">
+                <GitBranch className="w-3 h-3" />
+                Backlinks ({backlinks.length})
+              </span>
+              {backlinksOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+            {backlinksOpen && (
+              <div className="flex flex-col gap-0.5">
+                {backlinks.map((bl) => (
+                  <button
+                    key={bl.id}
+                    onClick={() => selectItem(bl)}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-card hover:text-text-primary transition-colors text-left"
+                  >
+                    <LinkIcon className="w-3 h-3 shrink-0 text-sky-400/60" />
+                    <span className="truncate">{bl.title ?? `Item #${bl.id}`}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Related items */}
+        {related.length > 0 && (
+          <div>
+            <button
+              onClick={() => setRelatedOpen((v) => !v)}
+              className="flex items-center justify-between w-full text-[10px] text-text-muted uppercase tracking-widest mb-1.5 hover:text-text-secondary transition-colors"
+            >
+              <span className="flex items-center gap-1.5">
+                <Network className="w-3 h-3" />
+                Related ({related.length})
+              </span>
+              {relatedOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+            {relatedOpen && (
+              <div className="flex flex-col gap-0.5">
+                {related.map((r) => (
+                  <button
+                    key={r.id}
+                    onClick={() => selectItem(r)}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-card hover:text-text-primary transition-colors text-left"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-emerald-400/60" />
+                    <span className="truncate">{r.title ?? `Item #${r.id}`}</span>
+                    {r.tags.length > 0 && (
+                      <span className="ml-auto text-[10px] text-text-muted shrink-0">{r.tags.slice(0,2).map(t => t.name).join(', ')}</span>
+                    )}
+                  </button>
+                ))}
               </div>
             )}
           </div>

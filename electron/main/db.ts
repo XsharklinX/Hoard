@@ -205,8 +205,7 @@ const MIGRATIONS: Array<{ version: number; up: () => void }> = [
       })()
       run('PRAGMA foreign_keys = ON')
     }
-  }
-  ,
+  },
   {
     // feeds table + source_feed_id on items
     version: 10,
@@ -229,6 +228,17 @@ const MIGRATIONS: Array<{ version: number; up: () => void }> = [
       )`)
       if (!columnExists('items', 'source_feed_id'))
         run('ALTER TABLE items ADD COLUMN source_feed_id INTEGER REFERENCES feeds(id) ON DELETE SET NULL')
+    }
+  },
+  {
+    // item_links table for wiki links between items
+    version: 11,
+    up: () => {
+      run(`CREATE TABLE IF NOT EXISTS item_links (
+        source_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        target_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        PRIMARY KEY (source_id, target_id)
+      )`)
     }
   }
 ]
@@ -595,6 +605,16 @@ export const itemQueries = {
     if (data.fileMime      !== undefined) { fields.push('file_mime=?');      values.push(data.fileMime) }
     if (data.sourceFeedId  !== undefined) { fields.push('source_feed_id=?'); values.push(data.sourceFeedId) }
 
+    // Sync wiki links from note content
+    if (data.content !== undefined) {
+      const mentionIds = extractMentionIds(data.content ?? '')
+      run('DELETE FROM item_links WHERE source_id=?', [id])
+      if (mentionIds.length) {
+        const ins = db.prepare('INSERT OR IGNORE INTO item_links (source_id, target_id) VALUES (?, ?)')
+        db.transaction(() => { mentionIds.forEach((tid) => { if (tid !== id) ins.run(id, tid) }) })()
+      }
+    }
+
     if (fields.length) {
       fields.push("updated_at=strftime('%s','now')")
       values.push(id)
@@ -808,6 +828,78 @@ export function getImagesDir(): string {
   const dir = path.join(app.getPath('userData'), 'hoard-images')
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   return dir
+}
+
+// ── Wiki link helpers ─────────────────────────────────────────────────────────
+
+export function extractMentionIds(html: string): number[] {
+  const regex = /data-id="(\d+)"/g
+  const ids: number[] = []
+  let m: RegExpExecArray | null
+  while ((m = regex.exec(html)) !== null) {
+    const n = parseInt(m[1], 10)
+    if (!isNaN(n)) ids.push(n)
+  }
+  return [...new Set(ids)]
+}
+
+export const linkQueries = {
+  backlinks: (id: number) =>
+    attachTags(all<any>(
+      `SELECT i.* FROM items i JOIN item_links il ON il.source_id = i.id WHERE il.target_id = ?`,
+      [id]
+    )),
+
+  related: (id: number, limit = 5) => {
+    const item = get<{ vault_id: number; url: string | null }>(
+      'SELECT vault_id, url FROM items WHERE id=?', [id]
+    )
+    if (!item) return []
+    const tagIds = all<{ tag_id: number }>(
+      'SELECT tag_id FROM item_tags WHERE item_id=?', [id]
+    ).map((r) => r.tag_id)
+
+    const seen = new Set([id])
+    const result: any[] = []
+
+    if (tagIds.length) {
+      const byTags = all<any>(
+        `SELECT i.*, COUNT(it.tag_id) as shared_tags FROM items i
+         JOIN item_tags it ON it.item_id = i.id
+         WHERE i.vault_id=? AND i.id!=? AND it.tag_id IN (${tagIds.map(() => '?').join(',')})
+         GROUP BY i.id ORDER BY shared_tags DESC LIMIT ?`,
+        [item.vault_id, id, ...tagIds, limit]
+      )
+      for (const r of byTags) { if (!seen.has(r.id)) { seen.add(r.id); result.push(r) } }
+    }
+
+    if (result.length < limit && item.url) {
+      try {
+        const domain = new URL(item.url).hostname
+        const byDomain = all<any>(
+          `SELECT * FROM items WHERE vault_id=? AND id!=? AND url LIKE ? LIMIT ?`,
+          [item.vault_id, id, `%${domain}%`, limit]
+        )
+        for (const r of byDomain) {
+          if (!seen.has(r.id) && result.length < limit) { seen.add(r.id); result.push(r) }
+        }
+      } catch { /* skip */ }
+    }
+
+    return attachTags(result.slice(0, limit))
+  },
+
+  graphData: (vaultId: number) => {
+    const nodes = all<{ id: number; title: string | null; type: string }>(
+      `SELECT id, title, type FROM items WHERE vault_id=? LIMIT 500`, [vaultId]
+    )
+    const edges = all<{ source_id: number; target_id: number }>(
+      `SELECT il.source_id, il.target_id FROM item_links il
+       JOIN items i ON i.id = il.source_id WHERE i.vault_id=?`,
+      [vaultId]
+    )
+    return { nodes, edges }
+  }
 }
 
 // ── Security (Mocked for now) ──────────────────────────────────────────────────
