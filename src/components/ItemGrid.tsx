@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Search, Plus, X, Trash2, MoveRight, CheckSquare, Square, ArrowUpDown, CalendarDays, Download, Tag, LayoutGrid, List, Globe, BookOpen, CheckCheck, Clock, Folder as FolderIcon, Link, FileText, Image, Code, Zap, Network } from 'lucide-react'
+import { Search, Plus, X, Trash2, MoveRight, CheckSquare, Square, ArrowUpDown, CalendarDays, Download, Tag, LayoutGrid, List, Globe, BookOpen, CheckCheck, Clock, Folder as FolderIcon, Link, FileText, Image, Code, Zap, Network, Bookmark, BookmarkPlus } from 'lucide-react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Popover from '@radix-ui/react-popover'
 import * as Tooltip from '@radix-ui/react-tooltip'
@@ -48,7 +48,7 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
     items, searchQuery, setSearch, setSort, sortBy,
     isLoading, selectedVault, selectedFolder,
     selectedTag, settings, updateSettings, selectedIds, selectAll, clearSelection,
-    openGraph,
+    openGraph, addSavedSearch,
     deleteSelected, selectedType, selectedItem, selectItem, tags, bulkSetReadStatus
   } = useStore()
   const t = useT()
@@ -70,17 +70,53 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
     localStorage.setItem('hoard:searchHistory', JSON.stringify(next))
   }
 
-  // Parse quick-filter tokens (type:, domain:, tag:) from the raw search string
+  // Parse quick-filter tokens from the raw search string
   const quickFilters = useMemo(() => {
-    const typeMatch   = /\btype:(\w+)/i.exec(localSearch)
-    const domainMatch = /\bdomain:([\w.-]+)/i.exec(localSearch)
-    const tagMatch    = /\btag:([^\s]+)/i.exec(localSearch)
-    const cleanQuery  = localSearch
+    const typeMatch    = /\btype:(\w+)/i.exec(localSearch)
+    const domainMatch  = /\bdomain:([\w.-]+)/i.exec(localSearch)
+    const tagMatch     = /\btag:([^\s]+)/i.exec(localSearch)
+    const beforeMatch  = /\bbefore:([\d-]+)/i.exec(localSearch)
+    const afterMatch   = /\bafter:([\d-]+)/i.exec(localSearch)
+    const unreadMatch  = /\bunread:(yes|no)/i.exec(localSearch)
+    const readMatch    = /\bread:(yes|no)/i.exec(localSearch)
+    const archivedMatch = /\barchived:(yes|no)/i.exec(localSearch)
+    const deadMatch    = /\bdead:(yes|no)/i.exec(localSearch)
+    const pinnedMatch  = /\bpinned:(yes|no)/i.exec(localSearch)
+    const hasMatch     = /\bhas:(image|archive|file|url)/i.exec(localSearch)
+    const langMatch    = /\blang:(\w+)/i.exec(localSearch)
+
+    const cleanQuery = localSearch
       .replace(/\btype:\w+/gi, '')
       .replace(/\bdomain:[\w.-]+/gi, '')
       .replace(/\btag:[^\s]+/gi, '')
+      .replace(/\bbefore:[\d-]+/gi, '')
+      .replace(/\bafter:[\d-]+/gi, '')
+      .replace(/\bunread:\w+/gi, '')
+      .replace(/\bread:\w+/gi, '')
+      .replace(/\barchived:\w+/gi, '')
+      .replace(/\bdead:\w+/gi, '')
+      .replace(/\bpinned:\w+/gi, '')
+      .replace(/\bhas:\w+/gi, '')
+      .replace(/\blang:\w+/gi, '')
       .trim()
-    return { type: typeMatch?.[1] ?? null, domain: domainMatch?.[1] ?? null, tag: tagMatch?.[1] ?? null, cleanQuery }
+
+    const dateFrom = beforeMatch ? new Date(beforeMatch[1]).getTime() : null
+    const dateTo   = afterMatch  ? new Date(afterMatch[1]).getTime()  : null
+
+    return {
+      type:     typeMatch?.[1]  ?? null,
+      domain:   domainMatch?.[1] ?? null,
+      tag:      tagMatch?.[1]   ?? null,
+      lang:     langMatch?.[1]  ?? null,
+      dateFrom,
+      dateTo,
+      unread:   unreadMatch?.[1]?.toLowerCase() === 'yes' ? true : readMatch?.[1]?.toLowerCase() === 'yes' ? false : null,
+      archived: archivedMatch ? archivedMatch[1].toLowerCase() === 'yes' : null,
+      dead:     deadMatch     ? deadMatch[1].toLowerCase() === 'yes'     : null,
+      pinned:   pinnedMatch   ? pinnedMatch[1].toLowerCase() === 'yes'   : null,
+      has:      hasMatch?.[1] ?? null,
+      cleanQuery
+    }
   }, [localSearch])
 
   const debouncedClean = useDebounce(quickFilters.cleanQuery, 300)
@@ -136,6 +172,35 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
     if (quickFilters.tag) {
       const qt = quickFilters.tag.toLowerCase()
       list = list.filter((i) => i.tags.some((tg) => tg.name.toLowerCase().includes(qt)))
+    }
+    // Extended operators
+    if (quickFilters.lang) {
+      list = list.filter((i) => i.code_lang?.toLowerCase() === quickFilters.lang!.toLowerCase())
+    }
+    if (quickFilters.dateFrom !== null) {
+      list = list.filter((i) => i.created_at * 1000 < quickFilters.dateFrom!)
+    }
+    if (quickFilters.dateTo !== null) {
+      list = list.filter((i) => i.created_at * 1000 > quickFilters.dateTo!)
+    }
+    if (quickFilters.unread !== null) {
+      list = list.filter((i) => quickFilters.unread ? i.read_status === 'unread' : i.read_status === 'read')
+    }
+    if (quickFilters.archived !== null) {
+      list = list.filter((i) => quickFilters.archived ? i.archive_status === 'done' : !i.archive_path)
+    }
+    if (quickFilters.dead !== null) {
+      list = list.filter((i) => quickFilters.dead ? i.link_status === 'dead' : i.link_status !== 'dead')
+    }
+    if (quickFilters.pinned !== null) {
+      list = list.filter((i) => quickFilters.pinned ? i.is_pinned === 1 : i.is_pinned === 0)
+    }
+    if (quickFilters.has) {
+      const h = quickFilters.has.toLowerCase()
+      if (h === 'image')   list = list.filter((i) => !!i.image_path)
+      if (h === 'archive') list = list.filter((i) => i.archive_status === 'done')
+      if (h === 'file')    list = list.filter((i) => i.type === 'file' || !!i.file_path)
+      if (h === 'url')     list = list.filter((i) => !!i.url)
     }
     return list
   }, [items, dateFilter, domainFilter, archiveFilter, quickFilters])
@@ -464,6 +529,44 @@ export function ItemGrid({ onAddItem, onMoveItems, onEditItem }: ItemGridProps) 
               </div>
             )}
           </div>
+
+          {/* Save search button — visible when there's an active query */}
+          {(localSearch.trim() || quickFilters.unread !== null || quickFilters.archived || quickFilters.dead) && (
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <button
+                  onClick={async () => {
+                    const name = window.prompt('Name for this search:')
+                    if (!name?.trim()) return
+                    await addSavedSearch({
+                      id: Date.now().toString(),
+                      name: name.trim(),
+                      query: localSearch,
+                      filters: {
+                        type:        quickFilters.type ?? undefined,
+                        domain:      quickFilters.domain ?? undefined,
+                        tag:         quickFilters.tag ?? undefined,
+                        lang:        quickFilters.lang ?? undefined,
+                        readStatus:  quickFilters.unread === true ? 'unread' : quickFilters.unread === false ? 'read' : undefined,
+                        hasArchive:  quickFilters.archived ?? undefined,
+                        isDead:      quickFilters.dead ?? undefined,
+                        isPinned:    quickFilters.pinned ?? undefined
+                      }
+                    })
+                    toast.success(`Saved search "${name.trim()}"`)
+                  }}
+                  className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs border bg-card border-gold/30 text-gold hover:bg-gold/10 transition-colors"
+                >
+                  <BookmarkPlus className="w-3.5 h-3.5" />
+                </button>
+              </Tooltip.Trigger>
+              <Tooltip.Portal>
+                <Tooltip.Content side="bottom" sideOffset={6} className="z-[500] px-2 py-1 rounded-md text-xs bg-card border border-border text-text-primary shadow-lg">
+                  Save this search
+                </Tooltip.Content>
+              </Tooltip.Portal>
+            </Tooltip.Root>
+          )}
 
           {/* Graph view button */}
           <Tooltip.Root>

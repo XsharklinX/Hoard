@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Vault, Folder, Item, Tag, Feed, CreateItemData, AppSettings, ItemType, SecurityStatus } from '../types'
+import type { Vault, Folder, Item, Tag, Feed, SavedSearch, CreateItemData, AppSettings, ItemType, SecurityStatus } from '../types'
 
 interface HoardStore {
   // ── App state ──────────────────────────────────────────────────────────────
@@ -93,6 +93,14 @@ interface HoardStore {
   autoSummaries: Record<number, string>
   setAutoSummary: (id: number, summary: string) => void
 
+  // ── Recently viewed ───────────────────────────────────────────────────────
+  recentlyViewed: Item[]
+  addRecentlyViewed: (item: Item) => void
+
+  // ── Saved searches ────────────────────────────────────────────────────────
+  addSavedSearch:    (s: SavedSearch) => Promise<void>
+  removeSavedSearch: (id: string)     => Promise<void>
+
   // ── Graph state ───────────────────────────────────────────────────────────
   graphOpen: boolean
   openGraph:  () => void
@@ -140,7 +148,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoArchiveAfterDays: 30,
   autopurgeDeadLinksEnabled: false,
   autopurgeDeadLinksAfterDays: 90,
-  sortBy: 'newest'
+  sortBy: 'newest',
+  savedSearches: []
 }
 
 const DEFAULT_SECURITY: SecurityStatus = { locked: false, encryptionEnabled: false, hasEncryptedDb: false }
@@ -166,6 +175,23 @@ export const useStore = create<HoardStore>((set, get) => ({
   folderCounts:     {},
   selectedIds:      new Set(),
   autoSummaries:    {},
+  recentlyViewed:   [],
+  addRecentlyViewed: (item) => set((s) => ({
+    recentlyViewed: [item, ...s.recentlyViewed.filter(r => r.id !== item.id)].slice(0, 10)
+  })),
+
+  addSavedSearch: async (search) => {
+    const { settings, updateSettings } = get()
+    const current = settings.savedSearches ?? []
+    if (!current.find(s => s.id === search.id)) {
+      await updateSettings({ savedSearches: [...current, search] })
+    }
+  },
+  removeSavedSearch: async (id) => {
+    const { settings, updateSettings } = get()
+    await updateSettings({ savedSearches: (settings.savedSearches ?? []).filter(s => s.id !== id) })
+  },
+
   graphOpen:        false,
   openGraph:        () => set({ graphOpen: true }),
   closeGraph:       () => set({ graphOpen: false }),
@@ -461,7 +487,10 @@ export const useStore = create<HoardStore>((set, get) => ({
     }
   },
 
-  selectItem: (item) => set({ selectedItem: item }),
+  selectItem: (item) => {
+    set({ selectedItem: item })
+    if (item) get().addRecentlyViewed(item)
+  },
 
   moveItem: async (id, targetVaultId, targetFolderId) => {
     await window.api.items.move(id, targetVaultId, targetFolderId)

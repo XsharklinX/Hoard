@@ -234,11 +234,11 @@ if (!window.__hoardContentLoaded) {
         </div>
         <div class="preview" id="preview"></div>
         <div class="actions">
-          <button class="btn" id="btnNote" title="Save as note">
+          <button class="btn" id="btnNote" title="Save as note (no source)">
             <span class="dot" style="background:#6ee7b7"></span>Note
           </button>
-          <button class="btn primary" id="btnQuote" title="Save as quote with source">
-            Save ↗
+          <button class="btn primary" id="btnQuote" title="Save as quote with attribution">
+            ❝ Quote
           </button>
         </div>
       </div>
@@ -249,7 +249,7 @@ if (!window.__hoardContentLoaded) {
     const btnNote = shadow.getElementById('btnNote')
     const btnQuote = shadow.getElementById('btnQuote')
 
-    function doSave(withSource) {
+    function doSave(saveAsNote) {
       const sel  = window.getSelection()
       const text = sel ? sel.toString().trim() : ''
       if (!text) return
@@ -257,22 +257,19 @@ if (!window.__hoardContentLoaded) {
       const isCode   = _bubble._isCode   || false
       const codeLang = _bubble._codeLang || null
 
-      const content = withSource
-        ? `${text}\n\n— [${document.title || host}](${location.href})`
-        : text
-
-      btnQuote.textContent = '✓ Saved'
+      btnQuote.textContent = '✓'
       btnQuote.className   = 'btn saved'
       btnNote.className    = 'btn saved'
       btnNote.textContent  = '✓'
 
       chrome.runtime.sendMessage({
         action:    'hoard:save-selection',
-        text:      isCode ? text : content,
+        text,
         pageUrl:   location.href,
         pageTitle: document.title,
         isCode,
-        codeLang
+        codeLang,
+        saveAsNote  // true = nota sin fuente, false = quote con attribution
       })
 
       clearTimeout(_savedTimer)
@@ -307,9 +304,12 @@ if (!window.__hoardContentLoaded) {
     btnNote.addEventListener('mousedown',  (e) => {
       e.preventDefault(); e.stopPropagation()
       if (_bubble._isCode) doSaveCode()
-      else doSave(false)
+      else doSave(true)   // saveAsNote = true → crea nota sin fuente
     })
-    btnQuote.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); doSave(true) })
+    btnQuote.addEventListener('mousedown', (e) => {
+      e.preventDefault(); e.stopPropagation()
+      doSave(false)       // saveAsNote = false → crea quote con attribution
+    })
 
     // Store refs
     _bubble._wrap    = wrap
@@ -368,7 +368,7 @@ if (!window.__hoardContentLoaded) {
       btnNote.innerHTML  = '<span class="dot" style="background:#6ee7b7"></span>Note'
     }
     btnQuote.className = 'btn primary'
-    btnQuote.textContent = 'Save ↗'
+    btnQuote.textContent = '❝ Quote'
 
     wrap.style.display = 'flex'
 

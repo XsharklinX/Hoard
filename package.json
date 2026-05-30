@@ -3,7 +3,7 @@
   "version": "3.0.0",
   "type": "module",
   "description": "Your personal digital hoard — links, notes and images. All yours, all local.",
-  "main": "out/main/index.js",
+  "main": "out/main/index.cjs",
   "author": "David Bonilla",
   "scripts": {
     "dev": "node dev.mjs",

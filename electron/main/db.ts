@@ -774,6 +774,11 @@ export const tagQueries = {
       vaultId, name, color
     ]),
 
+  update: (id: number, name: string, color: string) => {
+    run("UPDATE tags SET name=?, color=? WHERE id=?", [name, color, id])
+    return get('SELECT * FROM tags WHERE id=?', [id])
+  },
+
   delete: (id: number) => {
     run('DELETE FROM tags WHERE id=?', [id])
   },
@@ -807,6 +812,54 @@ export const versionQueries = {
     get<{ id: number; item_id: number; content: string; created_at: number }>('SELECT * FROM item_versions WHERE id=?', [versionId]),
 
   delete: (itemId: number) => run('DELETE FROM item_versions WHERE item_id=?', [itemId])
+}
+
+// ── Duplicate detection ───────────────────────────────────────────────────────
+
+export function findDuplicateUrls(vaultId: number): Array<{ url: string; count: number; ids: number[] }> {
+  const rows = all<{ url: string; count: number; ids: string }>(
+    `SELECT url, COUNT(*) as count, GROUP_CONCAT(id) as ids
+     FROM items
+     WHERE vault_id=? AND url IS NOT NULL AND url != ''
+     GROUP BY lower(trim(url, '/'))
+     HAVING count > 1
+     ORDER BY count DESC`,
+    [vaultId]
+  )
+  return rows.map(r => ({
+    url:   r.url,
+    count: r.count,
+    ids:   String(r.ids).split(',').map(Number)
+  }))
+}
+
+// ── Tag management ────────────────────────────────────────────────────────────
+
+export function renameTag(id: number, newName: string): void {
+  run("UPDATE tags SET name=? WHERE id=?", [newName, id])
+  // Re-sync FTS for all items with this tag
+  const itemIds = all<{ item_id: number }>('SELECT item_id FROM item_tags WHERE tag_id=?', [id])
+  for (const row of itemIds) {
+    const src = get<{ title: string | null; content: string | null; url: string | null }>(
+      'SELECT title, content, url FROM items WHERE id=?', [row.item_id]
+    )
+    if (!src) continue
+    const tagNames = all<{ name: string }>(
+      'SELECT t.name FROM tags t JOIN item_tags it ON t.id=it.tag_id WHERE it.item_id=?', [row.item_id]
+    ).map(r => r.name).join(' ')
+    run('DELETE FROM items_fts WHERE rowid=?', [row.item_id])
+    run('INSERT INTO items_fts(rowid,title,body,url,tags) VALUES(?,?,?,?,?)',
+      [row.item_id, src.title ?? '', src.content ?? '', src.url ?? '', tagNames])
+  }
+}
+
+export function mergeTags(fromId: number, toId: number): void {
+  db.transaction(() => {
+    // Move all items from fromTag to toTag (skip if already has toTag)
+    run('INSERT OR IGNORE INTO item_tags (item_id, tag_id) SELECT item_id, ? FROM item_tags WHERE tag_id=?', [toId, fromId])
+    run('DELETE FROM item_tags WHERE tag_id=?', [fromId])
+    run('DELETE FROM tags WHERE id=?', [fromId])
+  })()
 }
 
 // ── Dead link checker ──────────────────────────────────────────────────────────

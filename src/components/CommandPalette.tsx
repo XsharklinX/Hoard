@@ -17,7 +17,7 @@ const TYPE_COLOR: Record<string, string> = {
 }
 
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
-  const { items, selectItem } = useStore()
+  const { items, selectItem, recentlyViewed } = useStore()
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [globalResults, setGlobalResults] = useState<Item[]>([])
@@ -52,9 +52,13 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     }, 200)
   }, [query])
 
-  const filtered = query.trim().length >= 2
+  const isSearching2 = isSearching
+  const showRecent   = query.trim().length < 2 && recentlyViewed.length > 0
+  const filtered     = query.trim().length >= 2
     ? globalResults.slice(0, 15)
-    : (items || []).slice(0, 15)
+    : showRecent
+      ? recentlyViewed.slice(0, 10)
+      : (items || []).slice(0, 15)
 
   const handleSelect = (item: Item) => {
     selectItem(item)
@@ -118,6 +122,10 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               {query.trim().length >= 2 ? (
                 <p className="px-4 py-1.5 text-[10px] uppercase tracking-widest text-text-muted font-bold opacity-70 flex items-center gap-1.5">
                   <Globe className="w-3 h-3" />All vaults — {filtered.length} results
+                </p>
+              ) : showRecent ? (
+                <p className="px-4 py-1.5 text-[10px] uppercase tracking-widest text-text-muted font-bold opacity-70 flex items-center gap-1.5">
+                  Recently opened
                 </p>
               ) : (
                 <p className="px-4 py-1.5 text-[10px] uppercase tracking-widest text-text-muted font-bold opacity-70">

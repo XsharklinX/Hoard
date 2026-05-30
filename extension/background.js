@@ -1,11 +1,12 @@
 const API = 'http://127.0.0.1:43210'
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({ id: 'hoard-save-page',      title: 'Save Page to Hoard',           contexts: ['page'] })
-  chrome.contextMenus.create({ id: 'hoard-save-link',      title: 'Save Link to Hoard',            contexts: ['link'] })
-  chrome.contextMenus.create({ id: 'hoard-save-image',     title: 'Save Image to Hoard',           contexts: ['image'] })
-  chrome.contextMenus.create({ id: 'hoard-save-video',     title: 'Save Video Page to Hoard',      contexts: ['video'] })
-  chrome.contextMenus.create({ id: 'hoard-save-selection', title: 'Save Selection to Hoard',       contexts: ['selection'] })
+  chrome.contextMenus.create({ id: 'hoard-save-page',           title: 'Save Page to Hoard',           contexts: ['page'] })
+  chrome.contextMenus.create({ id: 'hoard-save-link',           title: 'Save Link to Hoard',            contexts: ['link'] })
+  chrome.contextMenus.create({ id: 'hoard-save-image',          title: 'Save Image to Hoard',           contexts: ['image'] })
+  chrome.contextMenus.create({ id: 'hoard-save-video',          title: 'Save Video Page to Hoard',      contexts: ['video'] })
+  chrome.contextMenus.create({ id: 'hoard-save-selection',      title: '❝ Save as Quote to Hoard',     contexts: ['selection'] })
+  chrome.contextMenus.create({ id: 'hoard-save-selection-note', title: 'Save as Note to Hoard',        contexts: ['selection'] })
 })
 
 // ── Persistent storage helpers ─────────────────────────────────────────────────
@@ -152,12 +153,24 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     await sendToHoard({ type: 'link', url: info.pageUrl, title: tab?.title || info.pageUrl })
 
   } else if (info.menuItemId === 'hoard-save-selection' && info.selectionText) {
-    const snippet = info.selectionText.trim().slice(0, 200)
-    const fullTitle = snippet.slice(0, 80) + (snippet.length > 80 ? '…' : '')
+    // Context menu "Save selection" → siempre quote con attribution
+    const text  = info.selectionText.trim()
+    const snip  = text.slice(0, 80) + (text.length > 80 ? '…' : '')
     await sendToHoard({
-      type: 'note',
-      content: `${info.selectionText.trim()}\n\n— [${tab?.title || info.pageUrl}](${info.pageUrl})`,
-      title: fullTitle
+      type:        'quote',
+      content:     text,
+      attribution: tab?.title || info.pageUrl,
+      url:         info.pageUrl,
+      title:       snip
+    })
+
+  } else if (info.menuItemId === 'hoard-save-selection-note' && info.selectionText) {
+    // Context menu "Save as note" → nota sin fuente
+    const text = info.selectionText.trim()
+    await sendToHoard({
+      type:    'note',
+      content: text,
+      title:   text.slice(0, 80) + (text.length > 80 ? '…' : '')
     })
   }
 })
@@ -166,26 +179,28 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.action !== 'hoard:save-selection') return
-  const text      = msg.text    || ''
-  const pageUrl   = msg.pageUrl || ''
-  const pageTitle = msg.pageTitle || pageUrl
-  const codeLang  = msg.codeLang || null
-  const isCode    = msg.isCode   || false
+  const text      = msg.text       || ''
+  const pageUrl   = msg.pageUrl    || ''
+  const pageTitle = msg.pageTitle  || pageUrl
+  const codeLang  = msg.codeLang   || null
+  const isCode    = msg.isCode     || false
+  const saveAsNote = msg.saveAsNote || false
 
   const snippet = text.slice(0, 80) + (text.length > 80 ? '…' : '')
 
   if (isCode) {
-    sendToHoard({
-      type:    'code',
-      content: text,
-      title:   snippet,
-      codeLang
-    })
+    sendToHoard({ type: 'code', content: text, title: snippet, codeLang })
+  } else if (saveAsNote) {
+    // Botón "Note" de la burbuja → nota simple sin fuente
+    sendToHoard({ type: 'note', content: text, title: snippet })
   } else {
+    // Botón "❝ Quote" de la burbuja → cita con attribution y URL de fuente
     sendToHoard({
-      type:    'note',
-      content: `${text}\n\n— [${pageTitle}](${pageUrl})`,
-      title:   snippet
+      type:        'quote',
+      content:     text,
+      attribution: pageTitle,
+      url:         pageUrl,
+      title:       snippet
     })
   }
 })

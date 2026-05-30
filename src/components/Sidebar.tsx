@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react'
-import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, Trash2, Archive, Settings, Tag, Link as LinkIcon, FileText, Image as ImageIcon, Code, Sparkles, Pencil, Circle, Quote, Paperclip, Rss, RefreshCw, AlertCircle, MoreHorizontal } from 'lucide-react'
+import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, Trash2, Archive, Settings, Tag, Link as LinkIcon, FileText, Image as ImageIcon, Code, Sparkles, Pencil, Circle, Quote, Paperclip, Rss, RefreshCw, AlertCircle, MoreHorizontal, Search, GitMerge, Copy } from 'lucide-react'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import * as ContextMenu from '@radix-ui/react-context-menu'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
@@ -10,6 +10,8 @@ import { toast } from '../lib/toast'
 import type { Vault, Folder as FolderType, Feed } from '../types'
 import { cn } from '../lib/utils'
 import { FeedModal } from './FeedModal'
+import { TagManagerModal } from './TagManagerModal'
+import { DuplicateModal } from './DuplicateModal'
 
 interface SidebarProps {
   onNewVault:  () => void
@@ -22,8 +24,9 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
   const {
     vaults, selectedVault, folders, selectedFolder, selectedTag, selectedType, itemCounts, folderCounts,
     tags, selectVault, selectFolder, selectTag, selectType, deleteVault, deleteFolder, deleteTag,
-    updateVault, updateFolder, reorderFolders, items,
-    feeds, selectedFeed, feedUnreadCounts, selectFeed, deleteFeed, refreshFeed, refreshAllFeeds
+    updateVault, updateFolder, reorderFolders, items, settings,
+    feeds, selectedFeed, feedUnreadCounts, selectFeed, deleteFeed, refreshFeed, refreshAllFeeds,
+    removeSavedSearch
   } = useStore()
 
   const unreadReadingTime = useMemo(() => {
@@ -48,6 +51,8 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
   const [feedModalOpen,  setFeedModalOpen]  = useState(false)
   const [editingFeed,    setEditingFeed]    = useState<Feed | null>(null)
   const [refreshingAll,  setRefreshingAll]  = useState(false)
+  const [tagMgrOpen,     setTagMgrOpen]     = useState(false)
+  const [dupOpen,        setDupOpen]        = useState(false)
 
   const rootFolders  = folders.filter((f) => f.parent_id === null)
   const childFolders = (parentId: number) => folders.filter((f) => f.parent_id === parentId)
@@ -292,11 +297,47 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
               )}
             </div>
 
+            {/* Saved Searches */}
+            {(settings?.savedSearches?.length ?? 0) > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] uppercase tracking-widest text-text-muted font-semibold flex items-center gap-1.5">
+                    <Search className="w-3 h-3" />Searches
+                  </span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  {(settings.savedSearches ?? []).map(s => (
+                    <div key={s.id} className="group flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer text-text-secondary hover:bg-card hover:text-text-primary transition-colors text-sm"
+                      onClick={() => { selectType('all') }}>
+                      <Search className="w-3 h-3 shrink-0 text-text-muted" />
+                      <span className="flex-1 truncate text-xs">{s.name}</span>
+                      <button onClick={async (e) => { e.stopPropagation(); await removeSavedSearch(s.id) }}
+                        className="hidden group-hover:block p-0.5 rounded hover:text-red-400 transition-colors">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Tags */}
             {tags.length > 0 && (
               <div>
-                <div className="flex items-center gap-1.5 mb-1.5">
+                <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[10px] uppercase tracking-widest text-text-muted font-semibold">{t.tags}</span>
+                  <div className="flex items-center gap-0.5">
+                    <Tip label="Manage tags (rename, merge, delete)">
+                      <button onClick={() => setTagMgrOpen(true)} className="p-0.5 rounded hover:bg-card text-text-muted hover:text-text-primary transition-colors">
+                        <GitMerge className="w-3.5 h-3.5" />
+                      </button>
+                    </Tip>
+                    <Tip label="Find duplicate items">
+                      <button onClick={() => setDupOpen(true)} className="p-0.5 rounded hover:bg-card text-text-muted hover:text-text-primary transition-colors">
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </Tip>
+                  </div>
                 </div>
                 <div className="flex flex-col gap-0.5">
                   {tags.map((tag) => (
@@ -460,6 +501,8 @@ export function Sidebar({ onNewVault, onEditVault, onNewFolder, onSettings }: Si
         feed={editingFeed}
         onClose={() => { setFeedModalOpen(false); setEditingFeed(null) }}
       />
+      <TagManagerModal open={tagMgrOpen} onClose={() => setTagMgrOpen(false)} />
+      <DuplicateModal  open={dupOpen}    onClose={() => setDupOpen(false)} />
 
         {/* Resizer */}
         <div

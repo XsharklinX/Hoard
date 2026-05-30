@@ -198,7 +198,14 @@ app.on('second-instance', () => {
 
 app.whenReady().then(async () => {
   protocol.handle('hoard', (request) => {
-    let filePath = request.url.slice('hoard://'.length)
+    const raw = request.url.slice('hoard://'.length)
+    // Share URL: hoard://open?data=<base64>
+    if (raw.startsWith('open?data=')) {
+      sendToRenderer('share:import', { data: raw.slice('open?data='.length) })
+      return new Response('', { status: 200 })
+    }
+    // File serving
+    let filePath = raw
     if (process.platform === 'win32' && filePath.startsWith('/')) {
       filePath = filePath.slice(1)
     }

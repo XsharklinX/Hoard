@@ -265,12 +265,16 @@ function renderRecent(items) {
   }
 
   list.innerHTML = items.map((item) => {
-    const dotClass = `type-dot dot-${item.type}`
+    const typeColor = { link: '#38bdf8', note: '#4ade80', image: '#c084fc', code: '#fbbf24', quote: '#f472b6', file: '#fb923c' }
+    const dotColor  = typeColor[item.type] || '#888'
+    const dotClass  = `type-dot dot-${item.type}`
     const icon     = item.favicon
       ? `<img src="${escHtml(item.favicon)}" alt="" style="width:14px;height:14px;object-fit:contain;" onerror="this.style.display='none'">`
-      : `<span class="${dotClass}"></span>`
+      : `<span class="${dotClass}" style="background:${dotColor}"></span>`
     const title = escHtml(item.title || item.url || 'Untitled')
-    const meta  = item.url ? escHtml(getDomain(item.url)) : escHtml(item.type)
+    const meta  = item.type === 'quote' && item.attribution
+      ? `❝ ${escHtml(item.attribution)}`
+      : item.url ? escHtml(getDomain(item.url)) : escHtml(item.type)
     const url   = item.url ? escHtml(item.url) : ''
 
     return `

@@ -7,7 +7,7 @@ import updaterPkg from 'electron-updater'
 const { autoUpdater } = updaterPkg
 import { vaultQueries, folderQueries, itemQueries, tagQueries, feedQueries, linkQueries, getImagesDir, CreateItemData,
          initDb, enableEncryption, disableEncryption, verifyPassword, hasEncryptedDb, isEncryptionEnabled,
-         versionQueries, getUncheckedLinks, setLinkStatus } from './db'
+         versionQueries, getUncheckedLinks, setLinkStatus, findDuplicateUrls, renameTag, mergeTags } from './db'
 import { parseFeed, refreshFeed, startFeedPoller, stopFeedPoller } from './feedFetcher'
 export { startFeedPoller, stopFeedPoller }
 import { loadSettings, saveSettings } from './settings'
@@ -92,10 +92,14 @@ export function registerHandlers(): void {
   })
 
   // ── Tags ─────────────────────────────────────────────────────────────────────
-  ipcMain.handle('tag:list',         (_e, vaultId: number)                           => tagQueries.list(vaultId))
+  ipcMain.handle('tag:list',         (_e, vaultId: number)                              => tagQueries.list(vaultId))
   ipcMain.handle('tag:create',       (_e, vaultId: number, name: string, color: string) => tagQueries.create(vaultId, name, color))
-  ipcMain.handle('tag:delete',       (_e, id: number)                                => { tagQueries.delete(id) })
-  ipcMain.handle('tag:set-item',     (_e, itemId: number, tagIds: number[])          => { tagQueries.setItemTags(itemId, tagIds) })
+  ipcMain.handle('tag:update',       (_e, id: number, name: string, color: string)      => tagQueries.update(id, name, color))
+  ipcMain.handle('tag:delete',       (_e, id: number)                                   => { tagQueries.delete(id) })
+  ipcMain.handle('tag:set-item',     (_e, itemId: number, tagIds: number[])             => { tagQueries.setItemTags(itemId, tagIds) })
+  ipcMain.handle('tag:rename',       (_e, id: number, newName: string)                  => { renameTag(id, newName) })
+  ipcMain.handle('tag:merge',        (_e, fromId: number, toId: number)                 => { mergeTags(fromId, toId) })
+  ipcMain.handle('item:duplicates',  (_e, vaultId: number)                              => findDuplicateUrls(vaultId))
 
   // ── Settings ─────────────────────────────────────────────────────────────────
   ipcMain.handle('settings:load', () => loadSettings())
@@ -685,6 +689,86 @@ export function registerHandlers(): void {
     fs.writeFileSync(saveResult.filePath, opml, 'utf-8')
     return { success: true, filePath: saveResult.filePath }
   })
+
+  // ── Export handlers (v1.4) ────────────────────────────────────────────────────
+
+  ipcMain.handle('export:markdown', async (_e, item: Record<string, unknown>) => {
+    const title  = (item.title as string | null) ?? 'untitled'
+    const safe   = title.replace(/[<>:"/\\|?*]/g, '-').trim() || 'untitled'
+    const result = await dialog.showSaveDialog({
+      title: 'Export as Markdown',
+      defaultPath: `${safe}.md`,
+      filters: [{ name: 'Markdown', extensions: ['md'] }]
+    })
+    if (result.canceled || !result.filePath) return { cancelled: true }
+    fs.writeFileSync(result.filePath, itemToMarkdown(item), 'utf-8')
+    return { success: true, filePath: result.filePath }
+  })
+
+  ipcMain.handle('export:pdf', async (_e, html: string, title: string) => {
+    const result = await dialog.showSaveDialog({
+      title: 'Export as PDF',
+      defaultPath: `${(title || 'untitled').replace(/[<>:"/\\|?*]/g, '-')}.pdf`,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }]
+    })
+    if (result.canceled || !result.filePath) return { cancelled: true }
+
+    const pdfWin = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true } })
+    const printHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+      body { font-family: Georgia, serif; max-width: 700px; margin: 40px auto; font-size: 14px; line-height: 1.7; color: #222; }
+      h1,h2,h3 { margin-top: 1.5em; } pre { background: #f5f5f5; padding: 12px; border-radius: 4px; overflow: auto; }
+      code { background: #f0f0f0; padding: 2px 4px; border-radius: 3px; font-size: 0.9em; }
+      blockquote { border-left: 3px solid #ccc; margin: 0; padding-left: 16px; color: #555; font-style: italic; }
+      img { max-width: 100%; }
+    </style></head><body>${html}</body></html>`
+    await pdfWin.loadURL('about:blank')
+    await pdfWin.webContents.executeJavaScript(`document.documentElement.innerHTML = ${JSON.stringify(printHtml)}`)
+    const pdfData = await pdfWin.webContents.printToPDF({ printBackground: true, pageSize: 'A4', margins: { top: 0.5, bottom: 0.5, left: 0.75, right: 0.75 } })
+    pdfWin.destroy()
+    fs.writeFileSync(result.filePath, pdfData)
+    return { success: true, filePath: result.filePath }
+  })
+
+  ipcMain.handle('export:site', async (_e, vaultId: number) => {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose export folder',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (result.canceled || !result.filePaths.length) return { cancelled: true }
+    const outDir = path.join(result.filePaths[0], `hoard-site-${new Date().toISOString().slice(0,10)}`)
+    if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true })
+    const imgDir = path.join(outDir, 'images')
+    fs.mkdirSync(imgDir, { recursive: true })
+
+    const items  = itemQueries.list({ vaultId }) as Array<Record<string, unknown>>
+    const vaults = vaultQueries.list() as Array<{ id: number; name: string }>
+    const vaultName = vaults.find(v => v.id === vaultId)?.name ?? 'Hoard'
+
+    // Copy images and rewrite paths
+    const copied: Record<string, string> = {}
+    function resolveImg(p: string | null): string {
+      if (!p) return ''
+      if (copied[p]) return `images/${path.basename(copied[p])}`
+      const dest = path.join(imgDir, path.basename(p))
+      try { fs.copyFileSync(p, dest); copied[p] = dest } catch { return '' }
+      return `images/${path.basename(dest)}`
+    }
+
+    // Generate individual item pages
+    for (const item of items) {
+      const fname = `item-${item.id}.html`
+      const tags  = (item.tags as Array<{ name: string }> ?? []).map(t => `<span class="tag">${esc(t.name)}</span>`).join(' ')
+      const imgSrc = item.image_path ? resolveImg(item.image_path as string) : ''
+      const body  = buildItemPageBody(item, imgSrc)
+      fs.writeFileSync(path.join(outDir, fname), sitePageHtml(esc((item.title as string) ?? 'Untitled'), vaultName, body + (tags ? `<p class="tags">${tags}</p>` : ''), '../'), 'utf-8')
+    }
+
+    // Generate index
+    const indexBody = buildSiteIndex(items, vaultName)
+    fs.writeFileSync(path.join(outDir, 'index.html'), sitePageHtml(vaultName, vaultName, indexBody, ''), 'utf-8')
+
+    return { success: true, folder: outDir, count: items.length }
+  })
 }
 
 // ── CSV parser helper ─────────────────────────────────────────────────────────
@@ -974,6 +1058,156 @@ filter()
 </script>
 </body>
 </html>`
+}
+
+// ── v1.4 Export helpers ───────────────────────────────────────────────────────
+
+function itemToMarkdown(item: Record<string, unknown>): string {
+  const title = (item.title as string | null) ?? ''
+  const content = (item.content as string | null) ?? ''
+  const url   = item.url as string | null
+  const type  = item.type as string
+
+  if (type === 'link') {
+    const lines = [`# ${title || url}`, '']
+    if (url) lines.push(`**URL:** ${url}`, '')
+    if (content) lines.push(content)
+    const tags = (item.tags as Array<{ name: string }> ?? []).map(t => `#${t.name}`).join(' ')
+    if (tags) lines.push('', tags)
+    return lines.join('\n')
+  }
+  if (type === 'quote') {
+    const lines = [`> ${content.replace(/\n/g, '\n> ')}`]
+    if (item.attribution) lines.push(`> — ${item.attribution}`)
+    if (url) lines.push('', `*Source: ${url}*`)
+    return lines.join('\n')
+  }
+  if (type === 'code') {
+    const lang = (item.code_lang as string | null) ?? ''
+    const lines = [`# ${title}`, '', `\`\`\`${lang}`, content, `\`\`\``]
+    return lines.join('\n')
+  }
+  // note / default
+  const htmlToMd = content.replace(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/gi, '## $1')
+    .replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
+    .replace(/<em[^>]*>(.*?)<\/em>/gi, '_$1_')
+    .replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`')
+    .replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n\n')
+    .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '- $1\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, '\n\n').trim()
+
+  const lines = []
+  if (title) lines.push(`# ${title}`, '')
+  lines.push(htmlToMd)
+  const tags = (item.tags as Array<{ name: string }> ?? []).map(t => `#${t.name}`).join(' ')
+  if (tags) lines.push('', tags)
+  return lines.join('\n')
+}
+
+function buildItemPageBody(item: Record<string, unknown>, imgSrc: string): string {
+  const title   = esc((item.title as string) ?? 'Untitled')
+  const type    = item.type as string
+  const content = (item.content as string) ?? ''
+  const url     = item.url as string | null
+  const date    = new Date(((item.created_at as number) ?? 0) * 1000).toLocaleDateString()
+
+  let body = `<h1>${title}</h1><p class="meta">${esc(type)} · ${date}</p>`
+  if (type === 'link') {
+    if (url) body += `<p><a href="${esc(url)}">${esc(url)}</a></p>`
+    if (imgSrc) body += `<img src="${imgSrc}" alt="${title}" style="max-width:100%;border-radius:6px;margin:12px 0">`
+    if (content) body += `<p>${esc(content)}</p>`
+  } else if (type === 'note') {
+    body += content.startsWith('<') ? content : `<p>${esc(content).replace(/\n/g, '<br>')}</p>`
+  } else if (type === 'quote') {
+    body += `<blockquote>${esc(content)}</blockquote>`
+    if (item.attribution) body += `<p>— ${esc(item.attribution as string)}</p>`
+    if (url) body += `<p><a href="${esc(url)}">Source</a></p>`
+  } else if (type === 'code') {
+    body += `<pre><code class="language-${esc((item.code_lang as string) ?? '')}">${esc(content)}</code></pre>`
+  } else if (type === 'image' && imgSrc) {
+    body += `<img src="${imgSrc}" alt="${title}" style="max-width:100%;border-radius:6px">`
+  }
+  return body
+}
+
+function buildSiteIndex(items: Array<Record<string, unknown>>, vaultName: string): string {
+  const byDate: Record<string, Array<Record<string, unknown>>> = {}
+  for (const item of items) {
+    const d = new Date(((item.created_at as number) ?? 0) * 1000).toLocaleDateString('en-CA') // YYYY-MM-DD
+    if (!byDate[d]) byDate[d] = []
+    byDate[d].push(item)
+  }
+  const allTags = new Set<string>()
+  items.forEach(i => (i.tags as Array<{ name: string }> ?? []).forEach(t => allTags.add(t.name)))
+
+  let html = `<h1>${esc(vaultName)}</h1>
+<p class="meta">${items.length} items · exported ${new Date().toLocaleDateString()}</p>`
+
+  if (allTags.size) {
+    html += `<section><h2>Tags</h2><div class="tags">`
+    for (const tag of [...allTags].sort()) {
+      const count = items.filter(i => (i.tags as Array<{ name: string }> ?? []).some(t => t.name === tag)).length
+      html += `<a href="#tag-${esc(tag)}" class="tag">${esc(tag)} (${count})</a> `
+    }
+    html += `</div></section>`
+  }
+
+  html += `<section><h2>All items</h2><ul class="item-list">`
+  for (const d of Object.keys(byDate).sort().reverse()) {
+    html += `<li class="date-header">${esc(d)}</li>`
+    for (const item of byDate[d]) {
+      const title = (item.title as string) ?? (item.url as string) ?? 'Untitled'
+      html += `<li><a href="item-${item.id}.html">${esc(title)}</a> <span class="type-badge">${esc(item.type as string)}</span></li>`
+    }
+  }
+  html += `</ul></section>`
+
+  // Tag sections
+  for (const tag of [...allTags].sort()) {
+    html += `<section id="tag-${esc(tag)}"><h2>#${esc(tag)}</h2><ul class="item-list">`
+    for (const item of items.filter(i => (i.tags as Array<{ name: string }> ?? []).some(t => t.name === tag))) {
+      const title = (item.title as string) ?? (item.url as string) ?? 'Untitled'
+      html += `<li><a href="item-${item.id}.html">${esc(title)}</a></li>`
+    }
+    html += `</ul></section>`
+  }
+  return html
+}
+
+function sitePageHtml(title: string, vaultName: string, body: string, root: string): string {
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title} — ${vaultName}</title>
+<style>
+:root { --bg:#0f1117; --surface:#1a1d27; --border:#2a2d3a; --text:#e0e0e0; --muted:#888; --gold:#c9952a; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:15px; line-height:1.7; }
+.wrapper { max-width:860px; margin:0 auto; padding:24px 20px; }
+nav { border-bottom:1px solid var(--border); padding:12px 20px; display:flex; align-items:center; gap:16px; background:var(--surface); }
+nav a { color:var(--gold); text-decoration:none; font-weight:500; }
+h1 { font-size:1.8em; margin-bottom:8px; }
+h2 { font-size:1.2em; margin:2em 0 .8em; color:var(--gold); }
+a { color:var(--gold); }
+p { margin:.8em 0; }
+blockquote { border-left:3px solid var(--gold); padding-left:16px; color:var(--muted); font-style:italic; margin:1em 0; }
+pre { background:#0d1117; border:1px solid var(--border); border-radius:6px; padding:14px; overflow-x:auto; font-size:.85em; margin:1em 0; }
+code { background:#1a1d27; padding:2px 6px; border-radius:3px; font-size:.9em; }
+.meta { color:var(--muted); font-size:.85em; margin-bottom:1.5em; }
+.tag { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:3px 10px; font-size:.8em; text-decoration:none; color:var(--text); margin:2px; display:inline-block; }
+.type-badge { font-size:.75em; background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:1px 6px; color:var(--muted); margin-left:6px; }
+.item-list { list-style:none; }
+.item-list li { padding:6px 0; border-bottom:1px solid var(--border); }
+.date-header { color:var(--muted); font-size:.8em; padding-top:16px; border-bottom:none; font-weight:600; }
+section { margin:2em 0; }
+</style></head>
+<body>
+<nav><a href="${root}index.html">${esc(vaultName)}</a></nav>
+<div class="wrapper">${body}</div>
+</body></html>`
 }
 
 // ── URL metadata ──────────────────────────────────────────────────────────────

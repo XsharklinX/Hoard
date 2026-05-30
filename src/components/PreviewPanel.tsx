@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
-import { X, ExternalLink, Pin, Trash2, Clock, Copy, Check, Link as LinkIcon, Archive, Loader2, AlertCircle, Pencil, Files, Download, BookOpen, Circle, Sparkles, ChevronDown, ChevronUp, Maximize2, History, RotateCcw, Quote, Paperclip, BookOpenText, Network, GitBranch } from 'lucide-react'
+import { X, ExternalLink, Pin, Trash2, Clock, Copy, Check, Link as LinkIcon, Archive, Loader2, AlertCircle, Pencil, Files, Download, BookOpen, Circle, Sparkles, ChevronDown, ChevronUp, Maximize2, History, RotateCcw, Quote, Paperclip, BookOpenText, Network, GitBranch, FileDown, FileText, Share2, Globe } from 'lucide-react'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -206,6 +206,38 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
     setTimeout(() => setCopied(false), 1800)
   }
 
+  const handleCopyMarkdown = async () => {
+    const md = itemToMarkdownFrontend(item)
+    await navigator.clipboard.writeText(md)
+    toast.success('Copied as Markdown')
+  }
+
+  const handleExportMarkdown = async () => {
+    const result = await window.api.export.markdown(item)
+    if (result.success) toast.success('Saved as Markdown')
+  }
+
+  const handleExportPdf = async () => {
+    const html = item.type === 'note' ? (item.content ?? '') :
+                 item.type === 'quote' ? `<blockquote>${item.content ?? ''}</blockquote>${item.attribution ? `<p>— ${item.attribution}</p>` : ''}` :
+                 item.type === 'code' ? `<pre><code>${item.content ?? ''}</code></pre>` :
+                 `<h1>${item.title ?? ''}</h1>${item.content ? `<p>${item.content}</p>` : ''}`
+    const result = await window.api.export.pdf(html, item.title ?? 'document')
+    if (result.success) toast.success('Saved as PDF')
+  }
+
+  const handleShareUrl = async () => {
+    const data = JSON.stringify({
+      type: item.type, title: item.title, content: item.content,
+      url: item.url, code_lang: item.code_lang, attribution: item.attribution,
+      tags: item.tags.map(t => t.name)
+    })
+    const encoded = btoa(encodeURIComponent(data))
+    const shareUrl = `hoard://open?data=${encoded}`
+    await navigator.clipboard.writeText(shareUrl)
+    toast.success('Share URL copied to clipboard')
+  }
+
   const handleReaderMode = async () => {
     if (readerMode) { setReaderMode(false); return }
     if (readerContent) { setReaderMode(true); return }
@@ -302,6 +334,35 @@ export function PreviewPanel({ onEdit }: PreviewPanelProps) {
               </button>
             </Tip>
           )}
+          {/* Copy as Markdown */}
+          <Tip label="Copy as Markdown">
+            <button onClick={handleCopyMarkdown} className="p-1.5 rounded-lg text-text-muted hover:bg-card hover:text-text-primary transition-colors">
+              <FileText className="w-3.5 h-3.5" />
+            </button>
+          </Tip>
+          {/* Export dropdown */}
+          <Tip label="Export / Share">
+            <div className="relative group">
+              <button className="p-1.5 rounded-lg text-text-muted hover:bg-card hover:text-text-primary transition-colors flex items-center">
+                <Share2 className="w-3.5 h-3.5" />
+              </button>
+              <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block min-w-[160px] bg-surface border border-border rounded-xl shadow-2xl py-1 overflow-hidden">
+                {(item.type === 'note' || item.type === 'quote' || item.type === 'code' || item.type === 'link') && (
+                  <button onClick={handleExportMarkdown} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-card hover:text-text-primary transition-colors text-left">
+                    <FileDown className="w-3.5 h-3.5" />Export as .md
+                  </button>
+                )}
+                {(item.type === 'note' || item.type === 'quote') && (
+                  <button onClick={handleExportPdf} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-card hover:text-text-primary transition-colors text-left">
+                    <FileText className="w-3.5 h-3.5" />Export as PDF
+                  </button>
+                )}
+                <button onClick={handleShareUrl} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-card hover:text-text-primary transition-colors text-left">
+                  <Globe className="w-3.5 h-3.5" />Copy share URL
+                </button>
+              </div>
+            </div>
+          </Tip>
           <Tip label={t.duplicateItem}>
             <button onClick={async () => { await duplicateItem(item.id); toast.success(t.toastItemDuplicated) }} className="p-1.5 rounded-lg text-text-muted hover:bg-card hover:text-text-primary transition-colors">
               <Files className="w-3.5 h-3.5" />
@@ -764,6 +825,32 @@ function TypeBadge({ type, lang }: { type: Item['type']; lang: string | null }) 
       {labels[type]}
     </span>
   )
+}
+
+function itemToMarkdownFrontend(item: Item): string {
+  const tags = item.tags.map(t => `#${t.name}`).join(' ')
+  if (item.type === 'link') {
+    const lines = [`[${item.title ?? item.url ?? ''}](${item.url ?? ''})`]
+    if (item.content) lines.push('', item.content)
+    if (tags) lines.push('', tags)
+    return lines.join('\n')
+  }
+  if (item.type === 'quote') {
+    const lines = [`> ${(item.content ?? '').replace(/\n/g, '\n> ')}`]
+    if (item.attribution) lines.push(`> — ${item.attribution}`)
+    if (item.url) lines.push('', `*Source: ${item.url}*`)
+    return lines.join('\n')
+  }
+  if (item.type === 'code') {
+    return `\`\`\`${item.code_lang ?? ''}\n${item.content ?? ''}\n\`\`\``
+  }
+  // note
+  const raw = (item.content ?? '').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim()
+  const lines = []
+  if (item.title) lines.push(`# ${item.title}`, '')
+  lines.push(raw)
+  if (tags) lines.push('', tags)
+  return lines.join('\n')
 }
 
 function Tip({ label, children }: { label: string; children: React.ReactElement }) {

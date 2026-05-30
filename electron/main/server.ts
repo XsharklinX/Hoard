@@ -243,6 +243,19 @@ export function startLocalServer() {
             })
             notifyRenderer()
 
+          } else if (payload.type === 'quote') {
+            itemQueries.create({
+              vaultId,
+              type:        'quote',
+              content:     payload.content     || undefined,
+              attribution: payload.attribution || undefined,
+              url:         payload.url         || undefined,
+              title:       payload.title       || undefined,
+              folderId:    folderId || undefined,
+              tagIds:      tagIds.length ? tagIds : undefined,
+            })
+            notifyRenderer()
+
           } else if (payload.type === 'link' && payload.url) {
             // ── Save immediately with what we have, never block on metadata ──
             const item = itemQueries.create({

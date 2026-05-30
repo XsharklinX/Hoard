@@ -1,3 +1,21 @@
+export interface SavedSearch {
+  id:      string
+  name:    string
+  query:   string
+  filters: {
+    type?:       string
+    domain?:     string
+    tag?:        string
+    dateFrom?:   number
+    dateTo?:     number
+    readStatus?: 'unread' | 'read'
+    hasArchive?: boolean
+    isDead?:     boolean
+    isPinned?:   boolean
+    lang?:       string
+  }
+}
+
 export interface AppSettings {
   language: 'en' | 'es'
   showReadingTime: boolean
@@ -16,6 +34,7 @@ export interface AppSettings {
   theme: 'dark' | 'light' | 'midnight'
   viewMode: 'grid' | 'list'
   sortBy: 'newest' | 'oldest' | 'az' | 'za' | 'pinned' | 'readingtime'
+  savedSearches: SavedSearch[]
   aiProvider: 'none' | 'ollama' | 'claude' | 'gemini'
   aiOllamaUrl: string
   aiOllamaModel: string
@@ -178,12 +197,16 @@ declare global {
         backlinks:    (id: number)      => Promise<Item[]>
         related:      (id: number)      => Promise<Item[]>
         graphData:    (vaultId: number) => Promise<{ nodes: Array<{ id: number; title: string | null; type: string }>; edges: Array<{ source_id: number; target_id: number }> }>
+        duplicates:   (vaultId: number) => Promise<Array<{ url: string; count: number; ids: number[] }>>
       }
       tags: {
-        list: (vaultId: number) => Promise<Tag[]>
-        create: (vaultId: number, name: string, color: string) => Promise<Tag>
-        delete: (id: number) => Promise<void>
+        list:        (vaultId: number) => Promise<Tag[]>
+        create:      (vaultId: number, name: string, color: string) => Promise<Tag>
+        update:      (id: number, name: string, color: string) => Promise<Tag>
+        delete:      (id: number) => Promise<void>
         setItemTags: (itemId: number, tagIds: number[]) => Promise<void>
+        rename:      (id: number, newName: string) => Promise<void>
+        merge:       (fromId: number, toId: number) => Promise<void>
       }
       settings: {
         load: () => Promise<AppSettings>
@@ -214,6 +237,11 @@ declare global {
         refreshAll:   (vaultId: number) => Promise<{ added: number }>
         importOpml:   (vaultId: number) => Promise<{ count: number; cancelled?: boolean }>
         exportOpml:   (vaultId: number) => Promise<{ success?: boolean; cancelled?: boolean; filePath?: string }>
+      }
+      export: {
+        markdown: (item: Item)                          => Promise<{ success?: boolean; cancelled?: boolean; filePath?: string }>
+        pdf:      (html: string, title: string)         => Promise<{ success?: boolean; cancelled?: boolean; filePath?: string }>
+        site:     (vaultId: number)                     => Promise<{ success?: boolean; cancelled?: boolean; folder?: string; count?: number }>
       }
       bookmarks: {
         import: (vaultId: number) => Promise<{ count: number; cancelled?: boolean }>

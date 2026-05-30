@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('api', {
     backlinks:    (id: number)                                                          => ipcRenderer.invoke('item:backlinks', id),
     related:      (id: number)                                                          => ipcRenderer.invoke('item:related', id),
     graphData:    (vaultId: number)                                                     => ipcRenderer.invoke('item:graph-data', vaultId),
+    duplicates:   (vaultId: number)                                                     => ipcRenderer.invoke('item:duplicates', vaultId),
     tagSelected:  (ids: number[], tagIds: number[])                                     => ipcRenderer.invoke('item:tag-selected', ids, tagIds),
     versionsList: (itemId: number)                                                       => ipcRenderer.invoke('item:versions-list', itemId),
     versionGet:   (versionId: number)                                                    => ipcRenderer.invoke('item:version-get', versionId),
@@ -44,8 +45,11 @@ contextBridge.exposeInMainWorld('api', {
   tags: {
     list:        (vaultId: number)                                   => ipcRenderer.invoke('tag:list', vaultId),
     create:      (vaultId: number, name: string, color: string)      => ipcRenderer.invoke('tag:create', vaultId, name, color),
+    update:      (id: number, name: string, color: string)           => ipcRenderer.invoke('tag:update', id, name, color),
     delete:      (id: number)                                        => ipcRenderer.invoke('tag:delete', id),
-    setItemTags: (itemId: number, tagIds: number[])                  => ipcRenderer.invoke('tag:set-item', itemId, tagIds)
+    setItemTags: (itemId: number, tagIds: number[])                  => ipcRenderer.invoke('tag:set-item', itemId, tagIds),
+    rename:      (id: number, newName: string)                       => ipcRenderer.invoke('tag:rename', id, newName),
+    merge:       (fromId: number, toId: number)                      => ipcRenderer.invoke('tag:merge', fromId, toId)
   },
 
   settings: {
@@ -79,6 +83,12 @@ contextBridge.exposeInMainWorld('api', {
     refreshAll:   (vaultId: number)                                  => ipcRenderer.invoke('feed:refresh-all', vaultId),
     importOpml:   (vaultId: number)                                  => ipcRenderer.invoke('feed:import-opml', vaultId),
     exportOpml:   (vaultId: number)                                  => ipcRenderer.invoke('feed:export-opml', vaultId)
+  },
+
+  export: {
+    markdown:  (item: unknown)                        => ipcRenderer.invoke('export:markdown', item),
+    pdf:       (html: string, title: string)          => ipcRenderer.invoke('export:pdf', html, title),
+    site:      (vaultId: number)                      => ipcRenderer.invoke('export:site', vaultId)
   },
 
   bookmarks: {

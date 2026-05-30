@@ -7,6 +7,7 @@ import {
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { cn } from '../lib/utils'
+import { toast } from '../lib/toast'
 import type { ItemType } from '../types'
 
 interface SettingsModalProps {
@@ -29,7 +30,8 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [importTotal,    setImportTotal]    = useState(0)
   const [importCount,    setImportCount]    = useState(0)
   const [backupState,    setBackupState]    = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
-  const [exportHtmlState, setExportHtmlState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const [exportHtmlState,  setExportHtmlState]  = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const [exportSiteState,  setExportSiteState]  = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
   const [syncState,      setSyncState]      = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
 
   // Encryption form state
@@ -141,6 +143,20 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
       setExportHtmlState(result.cancelled ? 'idle' : 'done')
       if (!result.cancelled) setTimeout(() => setExportHtmlState('idle'), 3000)
     } catch { setExportHtmlState('error') }
+  }
+
+  const handleExportSite = async () => {
+    const vault = useStore.getState().selectedVault
+    if (!vault) return
+    setExportSiteState('loading')
+    try {
+      const result = await window.api.export.site(vault.id)
+      setExportSiteState(result.cancelled ? 'idle' : result.success ? 'done' : 'error')
+      if (result.success) {
+        toast.success(`Exported ${result.count} items to static site`)
+        setTimeout(() => setExportSiteState('idle'), 3000)
+      }
+    } catch { setExportSiteState('error') }
   }
 
   const handleChooseSyncFolder = async () => {
@@ -438,6 +454,14 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                     : 'bg-card border-border text-text-secondary hover:text-text-primary disabled:opacity-50')}>
                 {exportHtmlState === 'loading' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : exportHtmlState === 'done' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
                 {exportHtmlState === 'done' ? 'Exported ✓' : 'Export as HTML'}
+              </button>
+              <button onClick={handleExportSite} disabled={exportSiteState === 'loading'}
+                className={cn('flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
+                  exportSiteState === 'done' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    : exportSiteState === 'error' ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                    : 'bg-card border-border text-text-secondary hover:text-text-primary disabled:opacity-50')}>
+                {exportSiteState === 'loading' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : exportSiteState === 'done' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Globe className="w-3.5 h-3.5" />}
+                {exportSiteState === 'done' ? 'Site exported ✓' : 'Export as static site'}
               </button>
             </div>
 

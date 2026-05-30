@@ -166,6 +166,22 @@ export default function App() {
     return () => { window.api.off('feed:items-added', handler) }
   }, [])
 
+  // ── Share URL import push ─────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = window.api.on('share:import', async (payload: unknown) => {
+      const { data } = payload as { data: string }
+      try {
+        const json = decodeURIComponent(atob(data))
+        const item = JSON.parse(json)
+        const { selectedVault: vault, createItem } = useStore.getState()
+        if (!vault) { toast.error('Open a vault first to import a shared item'); return }
+        await createItem({ type: item.type, title: item.title, content: item.content, url: item.url, codeLang: item.code_lang, attribution: item.attribution })
+        toast.success(`Imported "${item.title ?? item.url ?? 'item'}"`)
+      } catch { toast.error('Invalid share URL') }
+    })
+    return () => { window.api.off('share:import', handler) }
+  }, [])
+
   // ── Trigger dead link check on vault load ─────────────────────────────────
   useEffect(() => {
     if (!selectedVault) return
