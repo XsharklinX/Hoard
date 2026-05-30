@@ -9,6 +9,7 @@ import type { ItemType } from '../types'
 import { cn, formatBytes } from '../lib/utils'
 import { TagSelector } from './TagSelector'
 import { NOTE_TEMPLATES } from '../lib/templates'
+import type { NoteTemplate } from '../lib/templates'
 
 const CODE_LANGS = [
   'javascript', 'typescript', 'python', 'rust', 'go', 'java', 'cpp', 'c',
@@ -24,6 +25,10 @@ interface AddItemModalProps {
 
 export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) {
   const { createItem, selectedFolder, settings } = useStore()
+  const allTemplates: NoteTemplate[] = [
+    ...NOTE_TEMPLATES,
+    ...(settings.customTemplates ?? []).map(t => ({ id: t.id, label: t.label, icon: t.icon, markdown: t.markdown }))
+  ]
   const t = useT()
 
   const [type, setType]         = useState<ItemType>(initialType ?? settings.defaultItemType)
@@ -360,7 +365,7 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
                         align="start" sideOffset={4}
                         className="z-[300] min-w-[180px] bg-surface border border-border rounded-xl shadow-2xl py-1.5 overflow-hidden"
                       >
-                        {NOTE_TEMPLATES.map((tpl) => (
+                        {allTemplates.map((tpl) => (
                           <DropdownMenu.Item
                             key={tpl.id}
                             onSelect={() => { setContent(tpl.markdown); setNotePreview(false) }}

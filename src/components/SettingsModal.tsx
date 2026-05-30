@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   X, Globe, Eye, Layers, Upload, Loader2, CheckCircle2, Lock, Shield, ShieldOff,
-  Download, HardDrive, AlertTriangle, FolderOpen, RefreshCw, Puzzle,
+  Download, HardDrive, AlertTriangle, FolderOpen, RefreshCw, Puzzle, Plus,
   ArrowDownToLine, RotateCcw, Info, Zap, Palette, Sparkles, FolderSync, FileText, Clock
 } from 'lucide-react'
 import { useStore } from '../store'
@@ -713,6 +713,42 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                 </select>
               </div>
             )}
+          </section>
+
+          {/* ── Templates ── */}
+          <section className="px-5 py-4 flex flex-col gap-3">
+            <SectionHeader icon={<FileText className="w-3.5 h-3.5" />} label="Note Templates" />
+            <p className="text-[11px] text-text-muted">Custom templates appear in the template picker when creating notes.</p>
+            <div className="flex flex-col gap-2">
+              {(settings.customTemplates ?? []).map((tpl) => (
+                <div key={tpl.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border">
+                  <span className="text-base">{tpl.icon}</span>
+                  <span className="flex-1 text-sm text-text-secondary truncate">{tpl.label}</span>
+                  <button
+                    onClick={() => updateSettings({ customTemplates: (settings.customTemplates ?? []).filter(t => t.id !== tpl.id) })}
+                    className="p-1 text-text-muted hover:text-red-400 transition-colors">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => {
+                  const name = window.prompt('Template name:')
+                  if (!name?.trim()) return
+                  const icon = window.prompt('Icon (emoji):', '📝') ?? '📝'
+                  const body = window.prompt('Template content (Markdown):', '# ' + name) ?? ''
+                  updateSettings({
+                    customTemplates: [...(settings.customTemplates ?? []), {
+                      id: Date.now().toString(), label: name.trim(), icon, markdown: body
+                    }]
+                  })
+                  toast.success(`Template "${name.trim()}" created`)
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-card border border-dashed border-border text-text-muted hover:text-gold hover:border-gold/30 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />New template
+              </button>
+            </div>
           </section>
 
           {/* ── Data ── */}

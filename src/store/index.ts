@@ -93,6 +93,9 @@ interface HoardStore {
   autoSummaries: Record<number, string>
   setAutoSummary: (id: number, summary: string) => void
 
+  // ── Daily note + templates ────────────────────────────────────────────────
+  createDailyNote: () => Promise<void>
+
   // ── Recently viewed ───────────────────────────────────────────────────────
   recentlyViewed: Item[]
   addRecentlyViewed: (item: Item) => void
@@ -149,7 +152,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   autopurgeDeadLinksEnabled: false,
   autopurgeDeadLinksAfterDays: 90,
   sortBy: 'newest',
-  savedSearches: []
+  savedSearches: [],
+  customTemplates: []
 }
 
 const DEFAULT_SECURITY: SecurityStatus = { locked: false, encryptionEnabled: false, hasEncryptedDb: false }
@@ -175,6 +179,18 @@ export const useStore = create<HoardStore>((set, get) => ({
   folderCounts:     {},
   selectedIds:      new Set(),
   autoSummaries:    {},
+  createDailyNote: async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const { items, selectedVault, createItem, selectItem } = get()
+    if (!selectedVault) return
+    const existing = items.find(i => i.type === 'note' && i.title === today)
+    if (existing) { selectItem(existing); return }
+    const html = `<h1>${today}</h1><h2>📋 Today</h2><ul><li><p></p></li></ul><h2>📝 Notes</h2><p></p><h2>🔗 Links found today</h2><p></p>`
+    await createItem({ type: 'note', title: today, content: html })
+    const fresh = useStore.getState().items.find(i => i.type === 'note' && i.title === today)
+    if (fresh) selectItem(fresh)
+  },
+
   recentlyViewed:   [],
   addRecentlyViewed: (item) => set((s) => ({
     recentlyViewed: [item, ...s.recentlyViewed.filter(r => r.id !== item.id)].slice(0, 10)

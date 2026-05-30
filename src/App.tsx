@@ -53,7 +53,7 @@ export default function App() {
     loadVaults, selectedItem, checkSecurity, appLocked, unlock, lockApp, settings, updateSettings,
     updateArchiveStatus, updateLinkStatus, selectFolder, selectTag, selectType, loadCounts, reloadFolders,
     selectedFolder, selectedTag, selectedType, selectedVault, setAutoSummary,
-    graphOpen, closeGraph
+    graphOpen, closeGraph, createDailyNote
   } = useStore()
 
   const [addOpen,      setAddOpen]      = useState(false)
@@ -212,6 +212,10 @@ export default function App() {
           e.preventDefault()
           setShortcutsOpen((v) => !v)
         }
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
+        e.preventDefault()
+        createDailyNote()
       }
       if (e.key === 'g' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         const tag = (e.target as HTMLElement).tagName

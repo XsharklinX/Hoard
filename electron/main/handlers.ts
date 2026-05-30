@@ -206,6 +206,15 @@ export function registerHandlers(): void {
   })
 
   // ── File item handlers ────────────────────────────────────────────────────────
+  ipcMain.handle('util:save-image-data', async (_e, dataUrl: string) => {
+    const imagesDir = getImagesDir()
+    const ext       = dataUrl.match(/data:image\/(\w+);/)?.[1] ?? 'png'
+    const destPath  = path.join(imagesDir, `${Date.now()}.${ext}`)
+    const base64    = dataUrl.replace(/^data:image\/\w+;base64,/, '')
+    fs.writeFileSync(destPath, Buffer.from(base64, 'base64'))
+    return destPath
+  })
+
   ipcMain.handle('util:open-file-dialog', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openFile'] })
     if (result.canceled || !result.filePaths.length) return null

@@ -35,6 +35,7 @@ export interface AppSettings {
   viewMode: 'grid' | 'list'
   sortBy: 'newest' | 'oldest' | 'az' | 'za' | 'pinned' | 'readingtime'
   savedSearches: SavedSearch[]
+  customTemplates: Array<{ id: string; label: string; icon: string; markdown: string }>
   aiProvider: 'none' | 'ollama' | 'claude' | 'gemini'
   aiOllamaUrl: string
   aiOllamaModel: string
@@ -222,6 +223,7 @@ declare global {
         openUrl:         (url: string) => Promise<void>
         exportImage:     (srcPath: string) => Promise<{ success?: boolean; cancelled?: boolean; filePath?: string }>
         exportImages:    (srcPaths: string[]) => Promise<{ success?: boolean; cancelled?: boolean; copied?: number; folder?: string }>
+        saveImageData:   (dataUrl: string) => Promise<string>
         openFileDialog:  () => Promise<string | null>
         saveFile:        (filePath: string) => Promise<{ storedPath: string; size: number; mime: string }>
         openFile:        (storedPath: string) => Promise<void>

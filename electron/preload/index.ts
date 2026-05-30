@@ -67,6 +67,7 @@ contextBridge.exposeInMainWorld('api', {
     openUrl:         (url: string)          => ipcRenderer.invoke('util:open-url', url),
     exportImage:     (srcPath: string)      => ipcRenderer.invoke('util:export-image', srcPath),
     exportImages:    (srcPaths: string[])   => ipcRenderer.invoke('util:export-images', srcPaths),
+    saveImageData:   (dataUrl: string)       => ipcRenderer.invoke('util:save-image-data', dataUrl),
     openFileDialog:  ()                     => ipcRenderer.invoke('util:open-file-dialog'),
     saveFile:        (filePath: string)     => ipcRenderer.invoke('util:save-file', filePath),
     openFile:        (storedPath: string)   => ipcRenderer.invoke('util:open-file', storedPath),

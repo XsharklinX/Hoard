@@ -14,6 +14,7 @@ const GROUPS = [
       { keys: ['Ctrl', ','],           desc: 'Open settings' },
       { keys: ['?'],                   desc: 'Show this cheatsheet' },
       { keys: ['G'],                   desc: 'Toggle graph view' },
+      { keys: ['Ctrl', 'D'],           desc: 'Create / open today\'s daily note' },
     ]
   },
   {
