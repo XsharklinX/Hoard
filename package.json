@@ -1,6 +1,6 @@
 {
   "name": "hoard",
-  "version": "3.0.0",
+  "version": "1.6.0",
   "type": "module",
   "description": "Your personal digital hoard — links, notes and images. All yours, all local.",
   "main": "out/main/index.cjs",
@@ -10,6 +10,10 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "package": "npm run build && electron-builder",
+    "extension:package:chrome": "node scripts/package-extension.mjs",
+    "extension:package:firefox": "node scripts/package-extension.mjs firefox",
+    "extension:package": "node scripts/package-extension.mjs all",
+    "extension:store-assets": "node scripts/generate-store-assets.mjs",
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",

@@ -1,10 +1,12 @@
 const API = 'http://127.0.0.1:43210'
 const $ = (id) => document.getElementById(id)
+const tr = (key, fallback) => chrome.i18n?.getMessage(key) || fallback
+import('./i18n.js').then(({ applyTranslations }) => applyTranslations())
 
 // ── State ────────────────────────────────────────────────────────────────────
-let currentTab     = null
-let isOnline       = false
-let vaults         = []
+let currentTab      = null
+let isOnline        = false
+let vaults          = []
 let selectedVaultId = null
 let selectedFolderId = null
 let selectedTagIds   = new Set()
@@ -12,7 +14,6 @@ let currentUrlSaved  = false
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
-  // Current tab
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
   currentTab = tab
 
@@ -24,38 +25,53 @@ async function init() {
     $('pageTitle').textContent = tab.title || tab.url || 'Current page'
   }
 
-  // Restore persisted vault selection
   const stored = await storageGet(['selectedVaultId'])
   selectedVaultId = stored.selectedVaultId || null
 
-  // Check app + load vaults
+  // Check app status (but don't hide UI if offline)
   await checkStatus()
 
+  // Always load recents (from IndexedDB if offline, from app if online)
+  await loadRecent()
+
   if (isOnline) {
-    await Promise.all([loadVaultData(), loadRecent()])
+    await loadVaultData()
     if (tab?.url && tab.url.startsWith('http')) checkIfAlreadySaved(tab.url)
     updateImportBoardBar()
+  } else {
+    // Check if current URL was already saved locally
+    if (tab?.url && tab.url.startsWith('http')) checkIfAlreadySavedLocal(tab.url)
   }
 }
 
-// ── Status check ──────────────────────────────────────────────────────────────
+// ── Status check — never hides the UI ────────────────────────────────────────
 async function checkStatus() {
   try {
-    const res = await fetch(`${API}/status`, { signal: AbortSignal.timeout(2000) })
-    if (res.ok) {
-      const data = await res.json()
-      isOnline = true
-      vaults   = data.vaults || []
-    } else {
-      isOnline = false
-    }
+    const { getAppStatus } = await import('./api.js')
+    const data = await getAppStatus()
+    isOnline = true
+    vaults   = data.vaults || []
   } catch {
     isOnline = false
   }
 
-  $('statusDot').className       = `status-dot ${isOnline ? 'online' : 'offline'}`
-  $('onlineView').style.display  = isOnline ? 'block' : 'none'
-  $('offlineView').style.display = isOnline ? 'none'  : 'block'
+  $('statusDot').className = `status-dot ${isOnline ? 'online' : 'offline'}`
+  // Always show the save UI — just update the offline banner
+  if ($('offlineBanner')) $('offlineBanner').style.display = isOnline ? 'none' : 'block'
+  if ($('openAppBtn'))    $('openAppBtn').style.display    = isOnline ? 'inline-block' : 'none'
+  if ($('vaultWrap') || $('vaultSelect')?.parentElement) {
+    const vw = document.querySelector('.vault-wrap')
+    if (vw) vw.style.display = isOnline ? 'block' : 'none'
+  }
+}
+
+// ── Already saved check (local IndexedDB) ────────────────────────────────────
+async function checkIfAlreadySavedLocal(url) {
+  try {
+    const { urlExists } = await import('./db.js')
+    currentUrlSaved = await urlExists(url)
+    updateSaveCurrentBtn()
+  } catch { currentUrlSaved = false }
 }
 
 // ── Vault selector ────────────────────────────────────────────────────────────
@@ -103,7 +119,7 @@ async function loadFoldersTags() {
 
 function renderFolders(folders) {
   const sel = $('folderSelect')
-  sel.innerHTML = '<option value="">No folder</option>' +
+  sel.innerHTML = `<option value="">${tr('noFolder', 'No folder')}</option>` +
     folders.map((f) => `<option value="${f.id}">${escHtml(f.name)}</option>`).join('')
 
   sel.addEventListener('change', () => {
@@ -114,7 +130,7 @@ function renderFolders(folders) {
 function renderTags(tags) {
   const wrap = $('tagsWrap')
   if (!tags.length) {
-    wrap.innerHTML = '<span class="tags-empty">No tags</span>'
+    wrap.innerHTML = `<span class="tags-empty">${tr('noTags', 'No tags')}</span>`
     return
   }
 
@@ -148,21 +164,41 @@ function updateSaveCurrentBtn() {
   const label = $('saveLabel')
   if (currentUrlSaved) {
     btn.classList.add('saved')
-    label.textContent = '✓ Saved'
+    label.textContent = `✓ ${tr('saved', 'Saved')}`
     label.className   = 'action-label saved-lbl'
     btn.title         = 'Already in your Hoard'
   } else {
     btn.classList.remove('saved')
-    label.textContent = 'Save ↗'
+    label.textContent = `${tr('save', 'Save')} ↗`
     label.className   = 'action-label save-lbl'
     btn.title         = ''
   }
 }
 
+// ── Extract article text from active tab ──────────────────────────────────────
+async function extractPageContent(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        // Remove noise: nav, headers, footers, scripts, ads
+        const noise = document.querySelectorAll('nav,header,footer,aside,script,style,noscript,.ad,.ads,.advertisement,[aria-hidden="true"]')
+        noise.forEach(el => el.remove())
+        // Prefer article/main content
+        const article = document.querySelector('article, [role="main"], main, .post-content, .article-body, .entry-content')
+        const source  = article || document.body
+        return source.innerText?.replace(/\s{3,}/g, '\n\n').trim().slice(0, 15000) || ''
+      }
+    })
+    return results?.[0]?.result || ''
+  } catch { return '' }  // e.g., chrome:// pages, PDFs
+}
+
 // ── Save current page ─────────────────────────────────────────────────────────
 $('saveCurrentBtn').addEventListener('click', async () => {
   if (!currentTab?.url || currentUrlSaved) return
-  await saveItem({ type: 'link', url: currentTab.url, title: currentTab.title || '' })
+  const content = await extractPageContent(currentTab.id)
+  await saveItem({ type: 'link', url: currentTab.url, title: currentTab.title || '', content: content || undefined })
 })
 
 // ── Save manual URL ───────────────────────────────────────────────────────────
@@ -199,9 +235,9 @@ async function saveNote() {
   await saveItem({ type: 'note', content })
 }
 
-// ── Core save function ────────────────────────────────────────────────────────
+// ── Core save — always works offline via background.js → IndexedDB ───────────
 async function saveItem(payload) {
-  payload.vaultId  = selectedVaultId
+  if (selectedVaultId)     payload.vaultId  = selectedVaultId
   if (selectedFolderId)    payload.folderId = selectedFolderId
   if (selectedTagIds.size) payload.tagIds   = [...selectedTagIds]
 
@@ -213,54 +249,52 @@ async function saveItem(payload) {
   saveBtn.style.pointerEvents = 'none'
 
   try {
-    const res = await fetch(`${API}/add`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(payload),
-      signal:  AbortSignal.timeout(5000)
-    })
+    const result = await chrome.runtime.sendMessage({ action: 'hoard:save-item', payload })
+    if (!result?.ok) throw new Error(result?.error || 'Save failed')
 
-    if (res.ok) {
-      if (payload.type === 'note') {
-        showToast('✓ Note saved!', 'success')
-      } else {
-        showToast('✓ Saved! Enriching in background…', 'success')
-        // Mark as saved if it was the current page
-        if (payload.url && currentTab?.url && payload.url === currentTab.url) {
-          currentUrlSaved = true
-          updateSaveCurrentBtn()
-        }
-      }
-      await loadRecent()
-    } else {
-      showToast('Failed to save — check the app', 'error')
+    const msg = result.item?.duplicateAction === 'skipped'
+      ? 'Already saved · skipped duplicate'
+      : result.item?.duplicateAction === 'merged'
+        ? '✓ Existing item updated'
+        : isOnline ? '✓ Saved!' : '✓ Saved locally · syncs when app opens'
+    showToast(msg, 'success')
+
+    if (payload.url && currentTab?.url && payload.url === currentTab.url) {
+      currentUrlSaved = true
+      updateSaveCurrentBtn()
     }
-  } catch {
-    showToast('Save failed — is Hoard running?', 'error')
+    await loadRecent()
+  } catch (err) {
+    showToast('Save failed', 'error')
+    console.error(err)
   } finally {
     btn.disabled = false
-    btn.textContent = 'Save'
+    btn.textContent = tr('save', 'Save')
     saveBtn.style.opacity = ''
     saveBtn.style.pointerEvents = ''
   }
 }
 
-// ── Recent items ──────────────────────────────────────────────────────────────
+// ── Recent items — reads from IndexedDB (always works) ────────────────────────
 async function loadRecent() {
   try {
-    const url = `${API}/recent?vaultId=${selectedVaultId || ''}&limit=20`
-    const res = await fetch(url, { signal: AbortSignal.timeout(2000) })
+    const { getRecentItems } = await import('./db.js')
+    const localItems = await getRecentItems(20)
+    if (localItems.length) { renderRecent(localItems); return }
+    // Fallback to app if local is empty and app is online
+    if (!isOnline) return
+    const res = await fetch(`${API}/recent?vaultId=${selectedVaultId || ''}&limit=20`, { signal: AbortSignal.timeout(2000) })
     const { items } = await res.json()
     renderRecent(items || [])
   } catch {
-    $('recentList').innerHTML = ''
+    $('recentList').innerHTML = `<div style="padding:8px 14px;color:#444455;font-size:11px">${tr('nothingSaved', 'Nothing saved yet')}</div>`
   }
 }
 
 function renderRecent(items) {
   const list = $('recentList')
   if (!items.length) {
-    list.innerHTML = '<div style="padding:8px 14px;color:#444455;font-size:11px">Nothing saved yet</div>'
+    list.innerHTML = `<div style="padding:8px 14px;color:#444455;font-size:11px">${tr('nothingSaved', 'Nothing saved yet')}</div>`
     return
   }
 
@@ -297,6 +331,8 @@ function renderRecent(items) {
 
 // ── Import images from page ───────────────────────────────────────────────────
 let importInProgress = false
+let previewResolver = null
+let previewImages = []
 
 const BOARD_SITES = [
   { test: (h) => h.includes('pinterest.'),  label: '⊞ Import board' },
@@ -405,17 +441,26 @@ $('importBoardBtn').addEventListener('click', async () => {
       return
     }
 
-    $('importProgressText').textContent = `Saving ${images.length} images${folderName ? ` to "${folderName}"` : ''}…`
+    const selectedImages = await reviewImages(images)
+    if (!selectedImages.length) {
+      showToast('Import cancelled', 'info')
+      $('importProgress').classList.remove('visible')
+      return
+    }
+
+    $('importProgressText').textContent = `Saving ${selectedImages.length} images${folderName ? ` to "${folderName}"` : ''}…`
     $('importProgressFill').style.width = '88%'
 
-    const res = await fetch(`${API}/add-batch`, {
+    const { apiFetch } = await import('./api.js')
+    const ruleFolderId = selectedFolderId || await getRuleFolderId(currentTab.url || '')
+    const res = await apiFetch('/add-batch', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        items:      images,
+        items:      selectedImages,
         vaultId:    selectedVaultId,
-        folderName: selectedFolderId ? undefined : (folderName || undefined),
-        folderId:   selectedFolderId || undefined,
+        folderName: ruleFolderId ? undefined : (folderName || undefined),
+        folderId:   ruleFolderId || undefined,
         tagIds:     selectedTagIds.size ? [...selectedTagIds] : undefined
       }),
       signal: AbortSignal.timeout(15000)
@@ -437,9 +482,64 @@ $('importBoardBtn').addEventListener('click', async () => {
   }
 })
 
-// ── Open app ──────────────────────────────────────────────────────────────────
+function reviewImages(images) {
+  const overlay = $('previewOverlay')
+  const grid = $('previewGrid')
+  $('previewTitle').textContent = `Review images before import · ${images.length} found`
+  previewImages = images
+  grid.innerHTML = images.map((image, index) => `
+    <button class="preview-item" data-index="${index}" title="${escHtml(image.title || image.url || '')}">
+      <img src="${escHtml(image.url || '')}" alt="" loading="lazy">
+    </button>`).join('')
+  grid.querySelectorAll('.preview-item').forEach(btn => btn.addEventListener('click', () => btn.classList.toggle('excluded')))
+  overlay.classList.add('visible')
+  return new Promise(resolve => { previewResolver = resolve })
+}
+
+function closePreview(confirm) {
+  if (!previewResolver) return
+  const excluded = new Set([...$('previewGrid').querySelectorAll('.preview-item.excluded')].map(btn => parseInt(btn.dataset.index)))
+  const selected = [...$('previewGrid').querySelectorAll('.preview-item')]
+    .filter(btn => !excluded.has(parseInt(btn.dataset.index)))
+    .map(btn => parseInt(btn.dataset.index))
+  const result = confirm ? selected : []
+  $('previewOverlay').classList.remove('visible')
+  const resolve = previewResolver
+  previewResolver = null
+  resolve(result.map(index => previewImages[index]))
+  previewImages = []
+}
+
+$('cancelPreviewBtn').addEventListener('click', () => closePreview(false))
+$('confirmPreviewBtn').addEventListener('click', () => closePreview(true))
+
+// ── Open app (only visible when online) ──────────────────────────────────────
 $('openAppBtn').addEventListener('click', () => {
   chrome.tabs.create({ url: 'http://127.0.0.1:43210/status' })
+})
+
+// ── Browse all — opens side panel or a new tab ────────────────────────────────
+$('browseBtn').addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('sidepanel.html') })
+})
+
+// ── Export all saved items ────────────────────────────────────────────────────
+$('exportBtn').addEventListener('click', async () => {
+  try {
+    const { exportAll } = await import('./db.js')
+    const data     = await exportAll()
+    const json     = JSON.stringify(data, null, 2)
+    const blob     = new Blob([json], { type: 'application/json' })
+    const url      = URL.createObjectURL(blob)
+    const a        = document.createElement('a')
+    a.href         = url
+    a.download     = `hoard-export-${new Date().toISOString().slice(0,10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    showToast(`Exported ${data.items.length} items`, 'success')
+  } catch (err) {
+    showToast('Export failed', 'error')
+  }
 })
 
 // ── Import bookmarks ──────────────────────────────────────────────────────────
@@ -460,7 +560,8 @@ $('bookmarkFile').addEventListener('change', async (e) => {
   fillEl.style.width = '15%'
 
   try {
-    const res  = await fetch(`${API}/bookmarks-import`, {
+    const { apiFetch } = await import('./api.js')
+    const res  = await apiFetch('/bookmarks-import', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ html, vaultId: selectedVaultId }),
@@ -504,6 +605,17 @@ function storageGet(keys) {
 
 function storageSet(obj) {
   return new Promise((resolve) => chrome.storage.local.set(obj, resolve))
+}
+
+async function getRuleFolderId(url) {
+  let hostname = ''
+  try { hostname = new URL(url).hostname.replace(/^www\./, '') } catch { return null }
+  const { domainRules = [] } = await storageGet(['domainRules'])
+  const rule = domainRules.find(entry => {
+    const domain = String(entry.domain || '').replace(/^www\./, '').toLowerCase()
+    return domain && (hostname === domain || hostname.endsWith(`.${domain}`))
+  })
+  return rule?.folderId ? Number(rule.folderId) : null
 }
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────

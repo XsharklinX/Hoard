@@ -240,6 +240,17 @@ const MIGRATIONS: Array<{ version: number; up: () => void }> = [
         PRIMARY KEY (source_id, target_id)
       )`)
     }
+  },
+  {
+    // Idempotency receipts for browser extension retries
+    version: 12,
+    up: () => {
+      run(`CREATE TABLE IF NOT EXISTS extension_receipts (
+        client_id  TEXT PRIMARY KEY,
+        item_id    INTEGER REFERENCES items(id) ON DELETE SET NULL,
+        created_at INTEGER DEFAULT (strftime('%s','now'))
+      )`)
+    }
   }
 ]
 
@@ -349,6 +360,12 @@ function applySchema(): void {
     item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
     tag_id  INTEGER NOT NULL REFERENCES tags(id)  ON DELETE CASCADE,
     PRIMARY KEY (item_id, tag_id)
+  )`)
+
+  run(`CREATE TABLE IF NOT EXISTS extension_receipts (
+    client_id  TEXT PRIMARY KEY,
+    item_id    INTEGER REFERENCES items(id) ON DELETE SET NULL,
+    created_at INTEGER DEFAULT (strftime('%s','now'))
   )`)
 
   // ── Seed default vault ────────────────────────────────────────────────────
@@ -760,6 +777,24 @@ export const itemQueries = {
         [vaultId, `%${q}%`]
       )
     }
+  }
+}
+
+export const extensionReceiptQueries = {
+  reserve: (clientId: string) => {
+    const result = db.prepare('INSERT OR IGNORE INTO extension_receipts (client_id) VALUES (?)').run(clientId)
+    return result.changes === 1
+  },
+
+  complete: (clientId: string, itemId?: number) => {
+    run('UPDATE extension_receipts SET item_id=? WHERE client_id=?', [itemId ?? null, clientId])
+  },
+
+  get: (clientId: string) =>
+    get<{ item_id: number | null }>('SELECT item_id FROM extension_receipts WHERE client_id=?', [clientId]),
+
+  release: (clientId: string) => {
+    run('DELETE FROM extension_receipts WHERE client_id=?', [clientId])
   }
 }
 

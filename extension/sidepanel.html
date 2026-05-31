@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hoard — Your Collection</title>
+  <style>
+    :root {
+      --bg: #0e0e10; --surface: #18181c; --card: #1a1a20;
+      --border: #2a2a32; --text: #f0f0f4; --muted: #6a6a80;
+      --gold: #c9952a; --green: #4ade80; --red: #f87171; --blue: #60a5fa;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px; -webkit-font-smoothing: antialiased; }
+
+    /* ── Layout ── */
+    .app   { display: flex; flex-direction: column; height: 100vh; }
+    .header { padding: 12px 16px 10px; border-bottom: 1px solid var(--border);
+              background: var(--surface); position: sticky; top: 0; z-index: 10; }
+    .header-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .logo  { width: 20px; height: 20px; border-radius: 4px; }
+    .title { font-weight: 700; font-size: 15px; flex: 1; }
+    .count { font-size: 11px; color: var(--muted); }
+    .sync-btn { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+                background: var(--card); color: var(--muted); font-size: 11px;
+                cursor: pointer; transition: all .15s; }
+    .sync-btn:hover { border-color: rgba(201,149,42,.4); color: var(--gold); }
+    .sync-btn.syncing { color: var(--gold); border-color: rgba(201,149,42,.3); }
+
+    /* ── Search ── */
+    .search-wrap { position: relative; }
+    .search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+                       width: 14px; height: 14px; color: var(--muted); pointer-events: none; }
+    .search-input { width: 100%; background: var(--card); border: 1px solid var(--border);
+                    border-radius: 8px; padding: 7px 10px 7px 32px; color: var(--text);
+                    font-size: 12px; outline: none; transition: border-color .15s; }
+    .search-input::placeholder { color: var(--muted); }
+    .search-input:focus { border-color: rgba(201,149,42,.4); }
+
+    /* ── Filter tabs ── */
+    .filters { display: flex; gap: 4px; padding: 8px 16px 0; overflow-x: auto; }
+    .filter-btn { padding: 4px 10px; border-radius: 20px; border: 1px solid transparent;
+                  background: none; color: var(--muted); font-size: 11px; font-weight: 600;
+                  cursor: pointer; white-space: nowrap; transition: all .15s; }
+    .filter-btn:hover { color: var(--text); }
+    .filter-btn.active { background: rgba(201,149,42,.12); border-color: rgba(201,149,42,.3); color: var(--gold); }
+
+    /* ── Items list ── */
+    .items-wrap { flex: 1; overflow-y: auto; padding: 8px 0; }
+    .item-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 16px;
+                border-bottom: 1px solid var(--border); cursor: pointer; transition: background .12s; }
+    .item-row:hover { background: var(--surface); }
+    .item-icon { width: 28px; height: 28px; border-radius: 6px; background: var(--card);
+                 border: 1px solid var(--border); display: flex; align-items: center;
+                 justify-content: center; flex-shrink: 0; overflow: hidden; font-size: 13px; }
+    .item-icon img { width: 16px; height: 16px; object-fit: contain; }
+    .item-info { flex: 1; min-width: 0; }
+    .item-title { font-size: 12.5px; font-weight: 500; color: #d4d4e0;
+                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item-meta  { font-size: 10px; color: var(--muted); margin-top: 2px;
+                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item-type-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 6px; }
+    .item-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+    .item-row:hover .item-actions { opacity: 1; }
+    .act-btn { padding: 4px; border-radius: 4px; border: none; background: none;
+               color: var(--muted); cursor: pointer; transition: color .15s; font-size: 13px; }
+    .act-btn:hover { color: var(--red); }
+
+    /* ── Empty ── */
+    .empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
+             padding: 60px 20px; color: var(--muted); text-align: center; gap: 8px; }
+    .empty-icon { font-size: 40px; opacity: .3; }
+    .empty h3 { font-size: 14px; color: var(--text); opacity: .6; }
+    .empty p  { font-size: 12px; line-height: 1.6; }
+
+    /* ── Status bar ── */
+    .statusbar { padding: 6px 16px; border-top: 1px solid var(--border);
+                 background: var(--surface); display: flex; align-items: center;
+                 gap: 8px; font-size: 10px; color: var(--muted); }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+    .status-dot.online  { background: var(--green); box-shadow: 0 0 5px rgba(74,222,128,.5); }
+    .status-dot.offline { background: #555; }
+
+    /* ── Workflow tools ── */
+    details.workflow { margin: 8px 16px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+    details.workflow summary { padding: 8px 10px; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 700; }
+    .workflow-body { padding: 0 10px 10px; display: grid; gap: 7px; }
+    .workflow-row { display: flex; gap: 6px; align-items: center; }
+    .workflow-row input, .workflow-row select, .edit-card input, .edit-card select {
+      min-width: 0; flex: 1; background: var(--card); border: 1px solid var(--border);
+      border-radius: 6px; padding: 6px 8px; color: var(--text); font-size: 11px; outline: none;
+    }
+    .small-btn { border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
+                 background: var(--card); color: var(--muted); cursor: pointer; font-size: 11px; }
+    .small-btn:hover { border-color: rgba(201,149,42,.45); color: var(--gold); }
+    .health-list, .rules-list { display: grid; gap: 5px; }
+    .health-entry, .rule-entry { padding: 6px; border-radius: 6px; background: var(--card); color: var(--muted); font-size: 10px; }
+    .health-entry strong { color: var(--text); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .error-text { color: var(--red); }
+    .tag-options { display: flex; gap: 5px; flex-wrap: wrap; }
+    .tag-option { border: 1px solid var(--border); border-radius: 99px; padding: 3px 7px; color: var(--muted); cursor: pointer; font-size: 10px; }
+    .tag-option.selected { color: var(--gold); border-color: rgba(201,149,42,.55); background: rgba(201,149,42,.1); }
+    .edit-overlay { display: none; position: fixed; inset: 0; z-index: 30; place-items: center; padding: 16px; background: rgba(0,0,0,.7); }
+    .edit-overlay.visible { display: grid; }
+    .edit-card { width: 100%; display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+    .edit-card h3 { margin: 0; font-size: 14px; }
+
+    /* ── Stats ── */
+    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+    .stat-card  { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+                  padding: 8px 10px; text-align: center; }
+    .stat-num   { font-size: 22px; font-weight: 800; color: var(--gold); line-height: 1.1; }
+    .stat-lbl   { font-size: 10px; color: var(--muted); margin-top: 2px; }
+    .stat-delta { font-size: 10px; margin-top: 2px; }
+    .stat-delta.up   { color: var(--green); }
+    .stat-delta.down { color: var(--red); }
+    .daily-chart { display: flex; align-items: flex-end; gap: 3px; height: 40px;
+                   margin-bottom: 10px; padding: 0 2px; }
+    .day-bar    { flex: 1; background: rgba(201,149,42,.2); border-radius: 3px 3px 0 0;
+                  min-height: 3px; cursor: default; transition: background .15s; position: relative; }
+    .day-bar:hover { background: rgba(201,149,42,.5); }
+    .day-bar .day-tip { display: none; position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
+                        background: var(--card); border: 1px solid var(--border); border-radius: 4px;
+                        padding: 3px 6px; font-size: 10px; color: var(--text); white-space: nowrap; z-index: 10; }
+    .day-bar:hover .day-tip { display: block; }
+    .stat-section { font-size: 11px; margin-bottom: 6px; }
+    .stat-section-title { color: var(--muted); font-weight: 700; font-size: 10px;
+                          text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+    .stat-row   { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+    .stat-row-label { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .stat-row-bar   { height: 4px; border-radius: 2px; background: rgba(201,149,42,.3); }
+    .stat-row-count { color: var(--muted); font-size: 10px; min-width: 20px; text-align: right; }
+
+    /* ── Focused item (keyboard nav) ── */
+    .item-row.focused { background: rgba(201,149,42,.07); outline: none; }
+    .item-row.focused .item-title { color: var(--gold); }
+    .item-row.focused .item-actions { opacity: 1; }
+
+    /* ── Reader overlay ── */
+    .reader-overlay { display: none; position: fixed; inset: 0; z-index: 50;
+                      flex-direction: column; background: var(--bg); }
+    .reader-overlay.visible { display: flex; }
+    .reader-header { display: flex; align-items: flex-start; gap: 10px;
+                     padding: 14px 16px 10px; border-bottom: 1px solid var(--border);
+                     background: var(--surface); }
+    .reader-header-text { flex: 1; min-width: 0; }
+    .reader-title  { font-size: 14px; font-weight: 700; color: var(--text);
+                     overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2;
+                     -webkit-box-orient: vertical; }
+    .reader-meta   { font-size: 10px; color: var(--muted); margin-top: 3px; }
+    .reader-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+    .reader-link   { display: inline-flex; align-items: center; gap: 4px;
+                     padding: 5px 10px; border-radius: 6px; background: var(--card);
+                     border: 1px solid var(--border); color: var(--gold);
+                     font-size: 11px; font-weight: 600; text-decoration: none;
+                     transition: border-color .15s; }
+    .reader-link:hover { border-color: rgba(201,149,42,.45); }
+    .reader-close  { padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border);
+                     background: var(--card); color: var(--muted); font-size: 13px;
+                     cursor: pointer; transition: color .15s; }
+    .reader-close:hover { color: var(--text); }
+    .reader-body   { flex: 1; overflow-y: auto; padding: 20px 18px;
+                     font-size: 14px; line-height: 1.75; color: #c8c8d4; }
+    .reader-body p     { margin-bottom: 1em; }
+    .reader-body h1,
+    .reader-body h2,
+    .reader-body h3    { color: var(--text); font-weight: 700; margin: 1.4em 0 .5em; }
+    .reader-body a     { color: var(--gold); }
+    .reader-body pre   { background: var(--card); border: 1px solid var(--border);
+                         border-radius: 6px; padding: 12px; overflow-x: auto;
+                         font-size: 12px; margin: 1em 0; }
+    .reader-body blockquote { border-left: 3px solid rgba(201,149,42,.4);
+                              padding-left: 14px; color: var(--muted);
+                              font-style: italic; margin: 1em 0; }
+    /* Keyboard shortcut hints */
+    .kbd-hint { display: none; position: fixed; bottom: 32px; right: 14px;
+                background: var(--surface); border: 1px solid var(--border);
+                border-radius: 8px; padding: 8px 12px; font-size: 10px;
+                color: var(--muted); z-index: 5; pointer-events: none; }
+    .items-wrap:focus-within ~ .kbd-hint,
+    .kbd-hint.visible { display: block; }
+    kbd { display: inline-block; background: var(--card); border: 1px solid var(--border);
+          border-radius: 3px; padding: 1px 5px; font-size: 10px; color: var(--text);
+          font-family: monospace; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  </style>
+</head>
+<body>
+<div class="app">
+  <!-- Header -->
+  <div class="header">
+    <div class="header-top">
+      <img class="logo" src="icon.png" alt="Hoard">
+      <span class="title">Hoard</span>
+      <span class="count" id="itemCount">0 items</span>
+      <button class="sync-btn" id="syncBtn" title="Sync with Hoard app" data-i18n-title="syncWithApp">+ <span data-i18n="sync">Sync</span></button>
+    </div>
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input class="search-input" id="searchInput" type="text" placeholder="Search your collection..." data-i18n-placeholder="searchCollection" autocomplete="off">
+    </div>
+  </div>
+
+  <!-- Filter tabs -->
+  <div class="filters">
+    <button class="filter-btn active" data-filter="all" data-i18n="all">All</button>
+    <button class="filter-btn" data-filter="link" data-i18n="links">Links</button>
+    <button class="filter-btn" data-filter="note" data-i18n="notes">Notes</button>
+    <button class="filter-btn" data-filter="image" data-i18n="images">Images</button>
+    <button class="filter-btn" data-filter="quote" data-i18n="quotes">Quotes</button>
+    <button class="filter-btn" data-filter="code" data-i18n="code">Code</button>
+  </div>
+
+  <!-- Stats dashboard -->
+  <details class="workflow" id="statsPanel">
+    <summary data-i18n="stats">Stats</summary>
+    <div class="workflow-body" id="statsBody">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-num" id="statThisWeek">—</div>
+          <div class="stat-lbl">this week</div>
+          <div class="stat-delta" id="statWeekDelta"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="statToday">—</div>
+          <div class="stat-lbl">today</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="statStreak">—</div>
+          <div class="stat-lbl">day streak 🔥</div>
+        </div>
+      </div>
+      <!-- Daily bar chart -->
+      <div class="daily-chart" id="dailyChart"></div>
+      <!-- Top domains -->
+      <div class="stat-section" id="topDomains"></div>
+      <!-- Type breakdown -->
+      <div class="stat-section" id="typeBreakdown"></div>
+    </div>
+  </details>
+
+  <details class="workflow" id="syncHealth">
+    <summary id="syncHealthSummary" data-i18n="syncHealth">Sync health</summary>
+    <div class="workflow-body">
+      <div class="workflow-row"><button class="small-btn" id="retryAllBtn" data-i18n="retryPending">Retry pending</button></div>
+      <div class="health-list" id="syncHealthList"></div>
+    </div>
+  </details>
+
+  <details class="workflow" id="preferences">
+    <summary data-i18n="preferences">Preferences</summary>
+    <div class="workflow-body">
+      <label class="workflow-row"><span data-i18n="duplicates">Duplicates</span>
+        <select id="duplicatePolicy">
+          <option value="skip" data-i18n="duplicateSkip">Skip existing URL</option>
+          <option value="save-copy" data-i18n="duplicateCopy">Save a copy</option>
+          <option value="merge" data-i18n="duplicateMerge">Merge metadata</option>
+        </select>
+      </label>
+      <div class="workflow-row">
+        <input id="ruleDomain" placeholder="example.com">
+        <select id="ruleFolder"><option value="">No folder</option></select>
+        <button class="small-btn" id="addRuleBtn" data-i18n="addRule">Add rule</button>
+      </div>
+      <div class="rules-list" id="rulesList"></div>
+    </div>
+  </details>
+
+  <!-- Items -->
+  <div class="items-wrap" id="itemsList"></div>
+
+  <!-- Status bar -->
+  <div class="statusbar">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText" data-i18n="checking">Checking...</span>
+    <span style="flex:1"></span>
+    <span style="color:#3a3a50;font-size:9px" title="/ search · ↑↓ navigate · Enter open · Del delete · r read · e edit · 1–6 filter">⌨</span>
+  </div>
+</div>
+
+<!-- Reader overlay -->
+<div class="reader-overlay" id="readerOverlay">
+  <div class="reader-header">
+    <div class="reader-header-text">
+      <div class="reader-title" id="readerTitle"></div>
+      <div class="reader-meta"  id="readerMeta"></div>
+    </div>
+    <div class="reader-actions">
+      <a class="reader-link" id="readerLink" href="#" target="_blank" rel="noopener">↗ Original</a>
+      <button class="reader-close" id="readerClose" title="Close (Esc)">✕</button>
+    </div>
+  </div>
+  <div class="reader-body" id="readerBody"></div>
+</div>
+
+<!-- Keyboard shortcut hint (shows briefly on first ↑↓ press) -->
+<div class="kbd-hint" id="kbdHint">
+  <kbd>/</kbd> search &nbsp; <kbd>↑↓</kbd> navigate &nbsp;
+  <kbd>↵</kbd> open &nbsp; <kbd>Del</kbd> delete &nbsp;
+  <kbd>r</kbd> read &nbsp; <kbd>1–6</kbd> filter
+</div>
+<div class="edit-overlay" id="editOverlay">
+  <div class="edit-card">
+    <h3 data-i18n="editSavedItem">Edit saved item</h3>
+    <input id="editTitle" placeholder="Title">
+    <select id="editFolder"><option value="">No folder</option></select>
+    <div class="tag-options" id="editTags"></div>
+    <div class="workflow-row">
+      <button class="small-btn" id="saveEditBtn" data-i18n="saveChanges">Save changes</button>
+      <button class="small-btn" id="cancelEditBtn" data-i18n="cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<script src="sidepanel.js" type="module"></script>
+</body>
+</html>

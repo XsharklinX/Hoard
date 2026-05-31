@@ -6,6 +6,7 @@ out/
 
 # Packaged distributables (large binaries - should NOT be in git)
 dist/
+extension/*.zip
 
 # Graphify analysis cache (auto-generated)
 graphify-out/

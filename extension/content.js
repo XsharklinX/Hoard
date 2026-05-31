@@ -6,6 +6,7 @@ if (!window.__hoardContentLoaded) {
   const SCROLL_DELAY  = IS_PINTEREST ? 2200 : 1500
   const MAX_ROUNDS    = IS_PINTEREST ? 60   : 25
   const MIN_DIMENSION = 150
+  const tr = (key, fallback) => chrome.i18n?.getMessage(key) || fallback
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
 
@@ -230,24 +231,28 @@ if (!window.__hoardContentLoaded) {
       <div class="wrap" id="wrap">
         <div class="header">
           <img class="icon" src="${iconUrl}" />
-          <span class="title">Save to Hoard</span>
+          <span class="title">${tr('extensionName', 'Save to Hoard')}</span>
         </div>
         <div class="preview" id="preview"></div>
         <div class="actions">
           <button class="btn" id="btnNote" title="Save as note (no source)">
-            <span class="dot" style="background:#6ee7b7"></span>Note
+            <span class="dot" style="background:#6ee7b7"></span>${tr('note', 'Note')}
           </button>
           <button class="btn primary" id="btnQuote" title="Save as quote with attribution">
-            ❝ Quote
+            ❝ ${tr('quote', 'Quote')}
+          </button>
+          <button class="btn" id="btnCopyMd" title="Copy as Markdown" style="padding:5px 6px;flex:0 0 auto">
+            📋
           </button>
         </div>
       </div>
     `
 
-    const wrap    = shadow.getElementById('wrap')
-    const preview = shadow.getElementById('preview')
-    const btnNote = shadow.getElementById('btnNote')
+    const wrap     = shadow.getElementById('wrap')
+    const preview  = shadow.getElementById('preview')
+    const btnNote  = shadow.getElementById('btnNote')
     const btnQuote = shadow.getElementById('btnQuote')
+    const btnCopyMd = shadow.getElementById('btnCopyMd')
 
     function doSave(saveAsNote) {
       const sel  = window.getSelection()
@@ -311,6 +316,39 @@ if (!window.__hoardContentLoaded) {
       doSave(false)       // saveAsNote = false → crea quote con attribution
     })
 
+    // ── Copy as Markdown ─────────────────────────────────────────────────────
+    btnCopyMd.addEventListener('mousedown', (e) => {
+      e.preventDefault(); e.stopPropagation()
+      const sel     = window.getSelection()
+      const text    = sel ? sel.toString().trim() : ''
+      if (!text) return
+
+      const isCode   = _bubble._isCode  || false
+      const codeLang = _bubble._codeLang || ''
+      let md
+
+      if (isCode) {
+        md = `\`\`\`${codeLang}\n${text}\n\`\`\``
+      } else {
+        const pageTitle = document.title || location.hostname
+        const pageUrl   = location.href
+        // Quote style: blockquote + attribution link
+        md = `> ${text.replace(/\n/g, '\n> ')}\n>\n> — [${pageTitle}](${pageUrl})`
+      }
+
+      navigator.clipboard.writeText(md).then(() => {
+        btnCopyMd.textContent = '✓'
+        btnCopyMd.style.color = '#4ade80'
+        setTimeout(() => {
+          btnCopyMd.textContent = '📋'
+          btnCopyMd.style.color = ''
+        }, 1200)
+      }).catch(() => {
+        btnCopyMd.textContent = '✗'
+        setTimeout(() => { btnCopyMd.textContent = '📋' }, 1200)
+      })
+    })
+
     // Store refs
     _bubble._wrap    = wrap
     _bubble._preview = preview
@@ -362,13 +400,17 @@ if (!window.__hoardContentLoaded) {
     const btnQuote = b.shadowRoot.getElementById('btnQuote')
     if (isCode) {
       btnNote.className = 'btn code'
-      btnNote.innerHTML = `<span style="font-size:10px;letter-spacing:.01em">&lt;/&gt;</span>${codeLang ? ' ' + codeLang : ' Code'}`
+      btnNote.innerHTML = `<span style="font-size:10px;letter-spacing:.01em">&lt;/&gt;</span>${codeLang ? ' ' + codeLang : ` ${chrome.i18n.getMessage('code') || 'Code'}`}`
     } else {
       btnNote.className  = 'btn'
-      btnNote.innerHTML  = '<span class="dot" style="background:#6ee7b7"></span>Note'
+      btnNote.innerHTML  = `<span class="dot" style="background:#6ee7b7"></span>${chrome.i18n.getMessage('note') || 'Note'}`
     }
-    btnQuote.className = 'btn primary'
-    btnQuote.textContent = '❝ Quote'
+    btnQuote.className   = 'btn primary'
+    btnQuote.textContent = `❝ ${chrome.i18n.getMessage('quote') || 'Quote'}`
+
+    // Reset copy-md button
+    const btnCopyMd = b.shadowRoot.getElementById('btnCopyMd')
+    if (btnCopyMd) { btnCopyMd.textContent = '📋'; btnCopyMd.style.color = '' }
 
     wrap.style.display = 'flex'
 
@@ -421,4 +463,103 @@ if (!window.__hoardContentLoaded) {
     const text = sel ? sel.toString().trim() : ''
     if (!text) hideBubble()
   })
+
+  // ── "Already saved" indicator ────────────────────────────────────────────────
+  // Check if current URL is in the local collection and show a subtle toast.
+
+  function showSavedToast(item) {
+    if (document.querySelector('[data-hoard="saved-toast"]')) return  // already showing
+
+    const host = document.createElement('div')
+    host.setAttribute('data-hoard', 'saved-toast')
+    const shadow = host.attachShadow({ mode: 'open' })
+
+    const timeAgo = (ts) => {
+      const d = Math.floor((Date.now() - ts) / 86400000)
+      if (d < 1)  return 'today'
+      if (d === 1) return 'yesterday'
+      if (d < 7)  return `${d}d ago`
+      return new Date(ts).toLocaleDateString()
+    }
+
+    const typeEmoji = { link: '🔗', note: '📝', image: '🖼', quote: '❝', code: '💻', file: '📎' }
+    const emoji     = typeEmoji[item.type] || '•'
+    const when      = timeAgo(item.created_at)
+    const title     = (item.title || '').slice(0, 40) || 'this page'
+
+    shadow.innerHTML = `
+      <style>
+        :host { all: initial; }
+        .toast {
+          position: fixed;
+          bottom: 18px;
+          right: 18px;
+          z-index: 2147483646;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 9px 14px 9px 12px;
+          background: #1a1a20;
+          border: 1px solid rgba(201,149,42,.35);
+          border-radius: 10px;
+          box-shadow: 0 4px 18px rgba(0,0,0,.6);
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          font-size: 12px;
+          color: #c9952a;
+          cursor: pointer;
+          animation: slideIn .2s ease;
+          user-select: none;
+          max-width: 280px;
+        }
+        @keyframes slideIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .toast:hover { background: #222228; border-color: rgba(201,149,42,.55); }
+        .emoji { font-size: 14px; flex-shrink: 0; }
+        .text  { line-height: 1.3; }
+        .label { font-weight: 700; font-size: 11px; letter-spacing: .02em; }
+        .sub   { font-size: 10px; color: #888; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .close { margin-left: auto; font-size: 14px; color: #555; flex-shrink: 0; line-height: 1; }
+        .close:hover { color: #888; }
+      </style>
+      <div class="toast" id="toast">
+        <span class="emoji">${emoji}</span>
+        <div class="text">
+          <div class="label">✓ Saved in Hoard · ${when}</div>
+          <div class="sub">${title}</div>
+        </div>
+        <span class="close" id="closeBtn">✕</span>
+      </div>`
+
+    Object.assign(host.style, { position: 'fixed', bottom: '0', right: '0', zIndex: '2147483646', display: 'block', pointerEvents: 'none' })
+    const toastEl = shadow.getElementById('toast')
+    Object.assign(host.style, { pointerEvents: 'all' })
+
+    toastEl.addEventListener('click', (e) => {
+      if (e.target.id === 'closeBtn') { host.remove(); return }
+      // Open side panel or popup when clicking the toast
+      chrome.runtime.sendMessage({ action: 'hoard:open-panel' }).catch(() => {})
+    })
+
+    document.documentElement.appendChild(host)
+
+    // Auto-dismiss after 3.5s
+    setTimeout(() => {
+      toastEl.style.animation = 'none'
+      toastEl.style.opacity   = '0'
+      toastEl.style.transition = 'opacity .3s'
+      setTimeout(() => host.remove(), 320)
+    }, 3500)
+  }
+
+  // Run check shortly after page load (not blocking)
+  setTimeout(() => {
+    const url = location.href
+    if (!url.startsWith('http')) return
+    chrome.runtime.sendMessage({ action: 'hoard:check-url', url }, (response) => {
+      if (chrome.runtime.lastError) return
+      if (response?.exists && response.item) showSavedToast(response.item)
+    })
+  }, 800)
 }

@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Hoard — Your personal knowledge vault. Save links, notes, images, code snippets and quotes. 100% local, no account, no subscription.">
+  <meta property="og:title" content="Hoard — Personal Knowledge Vault">
+  <meta property="og:description" content="Save anything from the web. 100% local, no cloud, no account.">
+  <meta property="og:type" content="website">
+  <title>Hoard — Personal Knowledge Vault</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ── Nav ─────────────────────────────────────────────────────────────────── -->
+<nav id="nav">
+  <div class="nav-inner">
+    <a href="#" class="nav-logo">
+      <span class="logo-icon">🏴</span>
+      <span class="logo-text">Hoard</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#extension">Extension</a>
+      <a href="#how">How it works</a>
+      <a href="#download" class="nav-cta">Download free</a>
+    </div>
+    <button class="nav-mobile-btn" id="mobileMenuBtn" aria-label="Menu">☰</button>
+  </div>
+  <div class="nav-mobile-menu" id="mobileMenu">
+    <a href="#features" onclick="closeMobileMenu()">Features</a>
+    <a href="#extension" onclick="closeMobileMenu()">Extension</a>
+    <a href="#how" onclick="closeMobileMenu()">How it works</a>
+    <a href="#download" onclick="closeMobileMenu()" class="mobile-cta">Download free</a>
+  </div>
+</nav>
+
+<!-- ── Hero ────────────────────────────────────────────────────────────────── -->
+<section class="hero" id="hero">
+  <div class="hero-bg">
+    <div class="hero-glow glow-1"></div>
+    <div class="hero-glow glow-2"></div>
+    <div class="hero-grid"></div>
+  </div>
+  <div class="container hero-content">
+    <div class="hero-badge animate-in" style="animation-delay:.1s">
+      <span class="badge-dot"></span>
+      Open source · 100% local · No account needed
+    </div>
+    <h1 class="hero-title animate-in" style="animation-delay:.2s">
+      Everything you save.<br>
+      <span class="gradient-text">All yours. Always.</span>
+    </h1>
+    <p class="hero-sub animate-in" style="animation-delay:.3s">
+      Hoard is a desktop app that lets you save links, notes, images, code snippets and quotes — all stored locally on your machine. No cloud. No subscription. No tracking.
+    </p>
+    <div class="hero-actions animate-in" style="animation-delay:.4s">
+      <a href="#download" class="btn btn-primary btn-xl">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download for Windows
+      </a>
+      <a href="https://github.com/XsharklinX/Hoard" target="_blank" rel="noopener" class="btn btn-ghost btn-xl">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+    <p class="hero-note animate-in" style="animation-delay:.5s">
+      Free forever · Open source · Windows, macOS, Linux
+    </p>
+  </div>
+
+  <!-- App mockup -->
+  <div class="hero-mockup animate-in" style="animation-delay:.6s">
+    <div class="mockup-window">
+      <div class="mockup-titlebar">
+        <span class="dot dot-red"></span>
+        <span class="dot dot-yellow"></span>
+        <span class="dot dot-green"></span>
+        <span class="titlebar-name">Hoard</span>
+      </div>
+      <div class="mockup-body">
+        <div class="mockup-sidebar">
+          <div class="sidebar-vault">
+            <span class="vault-dot"></span>My Hoard
+          </div>
+          <div class="sidebar-item active">📥 All Items <span class="sidebar-count">1,247</span></div>
+          <div class="sidebar-item">🔗 Links <span class="sidebar-count">856</span></div>
+          <div class="sidebar-item">📝 Notes <span class="sidebar-count">234</span></div>
+          <div class="sidebar-item">🖼 Images <span class="sidebar-count">98</span></div>
+          <div class="sidebar-item">❝ Quotes <span class="sidebar-count">59</span></div>
+          <div class="sidebar-divider"></div>
+          <div class="sidebar-label">FOLDERS</div>
+          <div class="sidebar-item">📁 Research</div>
+          <div class="sidebar-item">📁 Development</div>
+          <div class="sidebar-item">📁 Reading List</div>
+          <div class="sidebar-divider"></div>
+          <div class="sidebar-label">FEEDS</div>
+          <div class="sidebar-item">📡 Hacker News <span class="badge-gold">12</span></div>
+        </div>
+        <div class="mockup-grid">
+          <div class="mock-card link-card">
+            <div class="mock-favicon">🌐</div>
+            <div class="mock-card-title">The Future of Local-First Software</div>
+            <div class="mock-card-meta">inkandswitch.com · 8 min read</div>
+            <div class="mock-tags"><span class="mock-tag">tech</span><span class="mock-tag">local-first</span></div>
+          </div>
+          <div class="mock-card note-card">
+            <div class="mock-card-type">📝 Note</div>
+            <div class="mock-card-title">Ideas for the new project architecture</div>
+            <div class="mock-card-preview">We should consider using SQLite as the primary store because it offers...</div>
+          </div>
+          <div class="mock-card image-card">
+            <div class="mock-image-placeholder"></div>
+          </div>
+          <div class="mock-card quote-card">
+            <div class="mock-quote-mark">❝</div>
+            <div class="mock-card-title">The best way to predict the future is to invent it.</div>
+            <div class="mock-card-meta">— Alan Kay</div>
+          </div>
+          <div class="mock-card code-card">
+            <div class="mock-card-type">💻 TypeScript</div>
+            <div class="mock-code">
+              <span class="code-keyword">const</span> vault = <span class="code-keyword">await</span><br>
+              &nbsp;&nbsp;db.open(<span class="code-str">'hoard.db'</span>)
+            </div>
+          </div>
+          <div class="mock-card link-card">
+            <div class="mock-favicon">📰</div>
+            <div class="mock-card-title">SQLite as the Everything Database</div>
+            <div class="mock-card-meta">blog.wesleyac.com · 5 min read</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Logos / trust ─────────────────────────────────────────────────────── -->
+<div class="trust-bar">
+  <div class="container">
+    <p class="trust-label">Works with your browser</p>
+    <div class="trust-logos">
+      <div class="trust-logo">
+        <svg viewBox="0 0 28 28" width="28" height="28"><circle cx="14" cy="14" r="14" fill="#4285F4"/><circle cx="14" cy="14" r="6" fill="white"/><path d="M14 8 A6 6 0 0 1 20 14" stroke="#EA4335" stroke-width="4" fill="none"/><path d="M14 8 A6 6 0 0 0 8 14 A6 6 0 0 0 14 20" stroke="#FBBC05" stroke-width="4" fill="none"/><path d="M14 20 A6 6 0 0 0 20 14" stroke="#34A853" stroke-width="4" fill="none"/></svg>
+        Chrome
+      </div>
+      <div class="trust-logo">
+        <svg viewBox="0 0 28 28" width="28" height="28"><circle cx="14" cy="14" r="14" fill="#FF7139"/><circle cx="14" cy="14" r="5" fill="#FFC939"/><path d="M14 0 A14 14 0 1 1 0 14 A14 14 0 0 1 14 0" fill="none" stroke="#FF9500" stroke-width="3"/></svg>
+        Firefox
+      </div>
+      <div class="trust-logo">
+        <svg viewBox="0 0 28 28" width="28" height="28"><circle cx="14" cy="14" r="14" fill="#0078D7"/><path d="M7 14 L14 7 L21 14 L14 21 Z" fill="white" opacity="0.9"/></svg>
+        Edge
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Features ──────────────────────────────────────────────────────────── -->
+<section class="features" id="features">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-label">Features</span>
+      <h2 class="section-title">Everything you need.<br>Nothing you don't.</h2>
+      <p class="section-sub">Hoard packs the features of Obsidian, Raindrop, and Pocket — into a single local app, with no subscription.</p>
+    </div>
+
+    <!-- Feature grid -->
+    <div class="features-grid">
+      <div class="feature-card feature-card-large" data-animate>
+        <div class="feature-icon-large">🗂️</div>
+        <h3>6 Types of Content</h3>
+        <p>Links with metadata, rich text notes, images with OCR, code with syntax highlight, quotes with attribution, and file attachments — all in one place.</p>
+        <div class="feature-types">
+          <span class="type-badge type-link">🔗 Link</span>
+          <span class="type-badge type-note">📝 Note</span>
+          <span class="type-badge type-image">🖼 Image</span>
+          <span class="type-badge type-code">💻 Code</span>
+          <span class="type-badge type-quote">❝ Quote</span>
+          <span class="type-badge type-file">📎 File</span>
+        </div>
+      </div>
+
+      <div class="feature-card" data-animate>
+        <div class="feature-icon">🔒</div>
+        <h3>100% Local</h3>
+        <p>Everything is stored in a SQLite database on your machine. No cloud sync, no telemetry, no account. Your data never leaves your computer.</p>
+      </div>
+
+      <div class="feature-card" data-animate>
+        <div class="feature-icon">🔍</div>
+        <h3>Powerful Search</h3>
+        <p>Full-text search with SQLite FTS5. Use operators like <code>before:</code>, <code>tag:</code>, <code>has:archive</code>, <code>lang:python</code> and save frequent searches.</p>
+      </div>
+
+      <div class="feature-card" data-animate>
+        <div class="feature-icon">🕸️</div>
+        <h3>Knowledge Graph</h3>
+        <p>Connect notes with <code>[[wiki links]]</code>, see backlinks and related items, explore your knowledge as an interactive d3-force graph.</p>
+      </div>
+
+      <div class="feature-card" data-animate>
+        <div class="feature-icon">📡</div>
+        <h3>RSS Feed Reader</h3>
+        <p>Subscribe to RSS/Atom feeds, import from OPML, and new articles land directly in your vault — automatically, in the background.</p>
+      </div>
+
+      <div class="feature-card" data-animate>
+        <div class="feature-icon">✏️</div>
+        <h3>Rich Editor</h3>
+        <p>TipTap v3 with slash commands, callout blocks, KaTeX math, Mermaid diagrams, tables, task lists, and wiki links.</p>
+      </div>
+
+      <div class="feature-card" data-animate>
+        <div class="feature-icon">📤</div>
+        <h3>Export Anywhere</h3>
+        <p>Export as Markdown, PDF, or a complete navigable static HTML site. Share individual items with a <code>hoard://</code> URL that anyone can import.</p>
+      </div>
+
+      <div class="feature-card" data-animate>
+        <div class="feature-icon">🗄️</div>
+        <h3>Multi-vault</h3>
+        <p>Keep separate vaults for work, personal, research. Smart folders with AND/OR conditions auto-organize your items.</p>
+      </div>
+    </div>
+
+    <!-- Feature highlight: search operators -->
+    <div class="feature-highlight" data-animate>
+      <div class="highlight-text">
+        <span class="section-label">Advanced Search</span>
+        <h3>Find anything, instantly</h3>
+        <p>Type natural search operators right in the search bar. Filter by date, type, status, language, or content — and save your most-used searches in the sidebar.</p>
+        <div class="operator-list">
+          <div class="operator"><code>before:2024-01-01</code> Items created before a date</div>
+          <div class="operator"><code>unread:yes</code> Only unread items</div>
+          <div class="operator"><code>has:archive</code> Items with saved page archive</div>
+          <div class="operator"><code>lang:python</code> Code in a specific language</div>
+          <div class="operator"><code>dead:yes</code> Broken links to clean up</div>
+          <div class="operator"><code>tag:research domain:github.com</code> Combine operators</div>
+        </div>
+      </div>
+      <div class="highlight-visual">
+        <div class="search-demo">
+          <div class="search-bar">
+            <span class="search-icon">🔍</span>
+            <span class="search-text">local-first <span class="search-op">type:link</span> <span class="search-op">unread:yes</span></span>
+            <span class="search-cursor">|</span>
+            <span class="save-btn">Save ⌘S</span>
+          </div>
+          <div class="search-results">
+            <div class="search-result">
+              <span class="result-icon">🔗</span>
+              <div>
+                <div class="result-title">Local-First Software: Ownership and Collaboration</div>
+                <div class="result-meta">inkandswitch.com · 12 min · unread</div>
+              </div>
+            </div>
+            <div class="search-result">
+              <span class="result-icon">🔗</span>
+              <div>
+                <div class="result-title">An Introduction to Local-First Development</div>
+                <div class="result-meta">bricolage.io · 8 min · unread</div>
+              </div>
+            </div>
+            <div class="search-result">
+              <span class="result-icon">🔗</span>
+              <div>
+                <div class="result-title">SQLite: The Lightweight Database for Local Apps</div>
+                <div class="result-meta">sqlite.org · 5 min · unread</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Extension ─────────────────────────────────────────────────────────── -->
+<section class="extension-section" id="extension">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-label">Browser Extension</span>
+      <h2 class="section-title">Save from anywhere.<br>Even without the app.</h2>
+      <p class="section-sub">The Hoard extension works independently. Save to your local browser collection and sync to the desktop app whenever you want.</p>
+    </div>
+
+    <div class="extension-grid">
+      <div class="ext-feature" data-animate>
+        <div class="ext-icon">🌐</div>
+        <h4>Works offline</h4>
+        <p>Saves to IndexedDB in your browser. No desktop app required.</p>
+      </div>
+      <div class="ext-feature" data-animate>
+        <div class="ext-icon">❝</div>
+        <h4>Smart selection</h4>
+        <p>Select text → choose Note, Quote, or Copy as Markdown.</p>
+      </div>
+      <div class="ext-feature" data-animate>
+        <div class="ext-icon">🖼</div>
+        <h4>Board import</h4>
+        <p>Import all images from Pinterest, Flickr, Unsplash with one click.</p>
+      </div>
+      <div class="ext-feature" data-animate>
+        <div class="ext-icon">📖</div>
+        <h4>Offline reader</h4>
+        <p>Article text is saved automatically. Read later, even when offline.</p>
+      </div>
+      <div class="ext-feature" data-animate>
+        <div class="ext-icon">🔄</div>
+        <h4>Auto-sync</h4>
+        <p>Items sync to the desktop app in the background when it's running.</p>
+      </div>
+      <div class="ext-feature" data-animate>
+        <div class="ext-icon">⌨️</div>
+        <h4>Keyboard first</h4>
+        <p>Full keyboard navigation in the side panel. / to search, ↑↓ to navigate.</p>
+      </div>
+    </div>
+
+    <div class="ext-download" data-animate>
+      <div class="ext-card">
+        <div class="ext-browser-icon">
+          <svg viewBox="0 0 40 40" width="40" height="40"><circle cx="20" cy="20" r="20" fill="#4285F4"/><circle cx="20" cy="20" r="8" fill="white"/><path d="M20 12 A8 8 0 0 1 28 20" stroke="#EA4335" stroke-width="5" fill="none"/><path d="M20 12 A8 8 0 0 0 12 20 A8 8 0 0 0 20 28" stroke="#FBBC05" stroke-width="5" fill="none"/><path d="M20 28 A8 8 0 0 0 28 20" stroke="#34A853" stroke-width="5" fill="none"/></svg>
+        </div>
+        <div>
+          <h4>Chrome / Edge</h4>
+          <p>Manifest v3, works on any Chromium browser</p>
+        </div>
+        <a href="https://github.com/XsharklinX/Hoard/tree/master/extension" target="_blank" class="btn btn-outline">
+          Install manually →
+        </a>
+      </div>
+      <div class="ext-card">
+        <div class="ext-browser-icon">
+          <svg viewBox="0 0 40 40" width="40" height="40"><circle cx="20" cy="20" r="20" fill="#FF7139"/><circle cx="20" cy="20" r="7" fill="#FFC939"/></svg>
+        </div>
+        <div>
+          <h4>Firefox</h4>
+          <p>Full support via manifest.firefox.json</p>
+        </div>
+        <a href="https://github.com/XsharklinX/Hoard/tree/master/extension" target="_blank" class="btn btn-outline">
+          Install manually →
+        </a>
+      </div>
+    </div>
+
+    <p class="ext-note">The extension is loaded manually (Settings → Browser Extension → "Load unpacked"). We're working on publishing to the Chrome Web Store.</p>
+  </div>
+</section>
+
+<!-- ── How it works ──────────────────────────────────────────────────────── -->
+<section class="how-section" id="how">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-label">How it works</span>
+      <h2 class="section-title">Up and running in minutes</h2>
+    </div>
+    <div class="steps">
+      <div class="step" data-animate>
+        <div class="step-number">1</div>
+        <div class="step-content">
+          <h3>Download & install</h3>
+          <p>Download the installer for your platform and run it. Hoard starts in your system tray.</p>
+        </div>
+      </div>
+      <div class="step-arrow">→</div>
+      <div class="step" data-animate>
+        <div class="step-number">2</div>
+        <div class="step-content">
+          <h3>Create a vault</h3>
+          <p>A vault is your personal collection. Create one on first launch — it's a simple SQLite file on your drive.</p>
+        </div>
+      </div>
+      <div class="step-arrow">→</div>
+      <div class="step" data-animate>
+        <div class="step-number">3</div>
+        <div class="step-content">
+          <h3>Start saving</h3>
+          <p>Install the browser extension and use <kbd>Alt+S</kbd> on any page. Or use the app directly.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Comparison ────────────────────────────────────────────────────────── -->
+<section class="compare-section">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-label">Comparison</span>
+      <h2 class="section-title">Why Hoard?</h2>
+    </div>
+    <div class="compare-table-wrap" data-animate>
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th class="col-hoard">Hoard</th>
+            <th>Notion</th>
+            <th>Raindrop</th>
+            <th>Obsidian</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>100% local / no cloud</td><td class="col-hoard">✅</td><td>❌</td><td>❌</td><td>✅</td></tr>
+          <tr><td>No account / no login</td><td class="col-hoard">✅</td><td>❌</td><td>❌</td><td>✅</td></tr>
+          <tr><td>Free forever</td><td class="col-hoard">✅</td><td>Partial</td><td>Partial</td><td>✅</td></tr>
+          <tr><td>RSS feeds built-in</td><td class="col-hoard">✅</td><td>❌</td><td>✅</td><td>Plugin</td></tr>
+          <tr><td>6 content types</td><td class="col-hoard">✅</td><td>✅</td><td>Links only</td><td>Notes only</td></tr>
+          <tr><td>Knowledge graph</td><td class="col-hoard">✅</td><td>❌</td><td>❌</td><td>✅</td></tr>
+          <tr><td>Browser extension</td><td class="col-hoard">✅</td><td>✅</td><td>✅</td><td>Plugin</td></tr>
+          <tr><td>Web archiving</td><td class="col-hoard">✅</td><td>❌</td><td>✅</td><td>❌</td></tr>
+          <tr><td>Image OCR</td><td class="col-hoard">✅</td><td>❌</td><td>❌</td><td>Plugin</td></tr>
+          <tr><td>Works offline</td><td class="col-hoard">✅</td><td>Partial</td><td>Partial</td><td>✅</td></tr>
+          <tr><td>Open source</td><td class="col-hoard">✅</td><td>❌</td><td>❌</td><td>❌</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ── Download ──────────────────────────────────────────────────────────── -->
+<section class="download-section" id="download">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-label">Download</span>
+      <h2 class="section-title">Start building your vault</h2>
+      <p class="section-sub">Free. Open source. Always.</p>
+    </div>
+
+    <div class="download-version" id="versionBadge">
+      <div class="version-loading">
+        <div class="spinner"></div>
+        Fetching latest release…
+      </div>
+    </div>
+
+    <div class="download-cards">
+      <div class="download-card" id="winCard" data-animate>
+        <div class="platform-icon">🪟</div>
+        <h3>Windows</h3>
+        <p>Windows 10 / 11 (x64)</p>
+        <a href="#" id="winBtn" class="btn btn-primary btn-download" data-platform="windows">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download .exe
+        </a>
+        <span class="download-hint">Installer (~90 MB)</span>
+      </div>
+
+      <div class="download-card" id="macCard" data-animate>
+        <div class="platform-icon">🍎</div>
+        <h3>macOS</h3>
+        <p>macOS 12+ (Intel & Apple Silicon)</p>
+        <a href="#" id="macBtn" class="btn btn-primary btn-download" data-platform="mac">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download .dmg
+        </a>
+        <span class="download-hint">Disk image (~95 MB)</span>
+      </div>
+
+      <div class="download-card" id="linuxCard" data-animate>
+        <div class="platform-icon">🐧</div>
+        <h3>Linux</h3>
+        <p>Ubuntu 20.04+ / Debian / Fedora</p>
+        <a href="#" id="linuxBtn" class="btn btn-primary btn-download" data-platform="linux">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download .AppImage
+        </a>
+        <span class="download-hint">AppImage (~90 MB)</span>
+      </div>
+    </div>
+
+    <div class="download-alt" data-animate>
+      <p>Or install from source:</p>
+      <div class="code-block">
+        <code>git clone https://github.com/XsharklinX/Hoard.git &amp;&amp; cd Hoard &amp;&amp; npm install &amp;&amp; npm run dev</code>
+        <button class="copy-btn" onclick="copyCode(this)" data-code="git clone https://github.com/XsharklinX/Hoard.git && cd Hoard && npm install && npm run dev">Copy</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Roadmap ───────────────────────────────────────────────────────────── -->
+<section class="roadmap-section">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-label">Roadmap</span>
+      <h2 class="section-title">What's coming next</h2>
+    </div>
+    <div class="roadmap-grid">
+      <div class="roadmap-card done" data-animate>
+        <span class="roadmap-status">✅ Done</span>
+        <h4>v1.5 — Search Power</h4>
+        <p>Saved searches, advanced filters, tag manager, duplicate detector</p>
+      </div>
+      <div class="roadmap-card done" data-animate>
+        <span class="roadmap-status">✅ Done</span>
+        <h4>v1.6 — Editor & Writing</h4>
+        <p>Slash commands, KaTeX math, Mermaid diagrams, daily notes, custom templates</p>
+      </div>
+      <div class="roadmap-card upcoming" data-animate>
+        <span class="roadmap-status">🔨 In Progress</span>
+        <h4>v1.7 — Views</h4>
+        <p>Table view, Kanban board, Calendar view</p>
+      </div>
+      <div class="roadmap-card planned" data-animate>
+        <span class="roadmap-status">📋 Planned</span>
+        <h4>v1.8 — Capture & Workflow</h4>
+        <p>Inbox concept, reminders, clipboard monitor, drag & drop</p>
+      </div>
+      <div class="roadmap-card planned" data-animate>
+        <span class="roadmap-status">📋 Planned</span>
+        <h4>v1.9 — Organization</h4>
+        <p>Nested tags, custom properties, typed relations, transclusion</p>
+      </div>
+      <div class="roadmap-card planned" data-animate>
+        <span class="roadmap-status">🔒 Planned</span>
+        <h4>v2.0 — Security</h4>
+        <p>Real AES-256 encryption, auto-lock, virtual scroll, importers</p>
+      </div>
+    </div>
+    <div class="roadmap-cta" data-animate>
+      <a href="https://github.com/XsharklinX/Hoard/issues" target="_blank" class="btn btn-ghost">
+        Suggest a feature →
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ────────────────────────────────────────────────────────────── -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-top">
+      <div class="footer-brand">
+        <span class="footer-logo">🏴 Hoard</span>
+        <p>Your personal knowledge vault.<br>Open source, forever free.</p>
+      </div>
+      <div class="footer-links-grid">
+        <div class="footer-col">
+          <h5>App</h5>
+          <a href="#download">Download</a>
+          <a href="#features">Features</a>
+          <a href="#how">How it works</a>
+          <a href="#extension">Extension</a>
+        </div>
+        <div class="footer-col">
+          <h5>Resources</h5>
+          <a href="https://github.com/XsharklinX/Hoard" target="_blank">GitHub</a>
+          <a href="https://github.com/XsharklinX/Hoard/releases" target="_blank">Releases</a>
+          <a href="https://github.com/XsharklinX/Hoard/issues" target="_blank">Issues</a>
+          <a href="https://github.com/XsharklinX/Hoard/blob/master/README.md" target="_blank">Docs</a>
+        </div>
+        <div class="footer-col">
+          <h5>Built with</h5>
+          <a href="https://www.electronjs.org/" target="_blank">Electron</a>
+          <a href="https://react.dev" target="_blank">React</a>
+          <a href="https://www.sqlite.org" target="_blank">SQLite</a>
+          <a href="https://tiptap.dev" target="_blank">TipTap</a>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>MIT License · Made with ☕ by <a href="https://github.com/XsharklinX" target="_blank">XsharklinX</a></p>
+      <p class="footer-note">No tracking, no analytics, no cookies on this page.</p>
+    </div>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

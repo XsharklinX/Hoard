@@ -23,7 +23,7 @@ vi.mock('electron', () => ({
 }))
 
 // ── Import after mocks ────────────────────────────────────────────────────────
-import { initDb, vaultQueries, folderQueries, itemQueries, tagQueries, saveDb } from '../electron/main/db'
+import { initDb, vaultQueries, folderQueries, itemQueries, tagQueries, extensionReceiptQueries, saveDb } from '../electron/main/db'
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
 beforeAll(async () => {
@@ -242,5 +242,26 @@ describe('counts', () => {
     expect(counts.all).toBeGreaterThan(0)
     expect(typeof counts.link).toBe('number')
     expect(typeof counts.note).toBe('number')
+  })
+})
+
+describe('extension receipts', () => {
+  it('reserves each browser capture id only once', () => {
+    expect(extensionReceiptQueries.reserve('capture-1')).toBe(true)
+    expect(extensionReceiptQueries.reserve('capture-1')).toBe(false)
+  })
+
+  it('allows a failed browser capture to be retried after release', () => {
+    expect(extensionReceiptQueries.reserve('capture-retry')).toBe(true)
+    extensionReceiptQueries.release('capture-retry')
+    expect(extensionReceiptQueries.reserve('capture-retry')).toBe(true)
+  })
+
+  it('returns the desktop item linked to a browser capture', () => {
+    const vaultId = (vaultQueries.list()[0] as { id: number }).id
+    const item = itemQueries.create({ vaultId, type: 'note', content: 'editable capture' }) as { id: number }
+    expect(extensionReceiptQueries.reserve('capture-edit')).toBe(true)
+    extensionReceiptQueries.complete('capture-edit', item.id)
+    expect(extensionReceiptQueries.get('capture-edit')?.item_id).toBe(item.id)
   })
 })

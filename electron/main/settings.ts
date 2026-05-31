@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import crypto from 'crypto'
 
 export interface AppSettings {
   language: 'en' | 'es'
@@ -81,4 +82,16 @@ export function saveSettings(patch: Partial<AppSettings>): AppSettings {
   const updated = { ...loadSettings(), ...patch }
   fs.writeFileSync(settingsPath(), JSON.stringify(updated, null, 2), 'utf-8')
   return updated
+}
+
+export function getLocalApiToken(): string {
+  const tokenPath = path.join(app.getPath('userData'), 'extension-token')
+  try {
+    const token = fs.readFileSync(tokenPath, 'utf-8').trim()
+    if (token) return token
+  } catch { /* create below */ }
+
+  const token = crypto.randomBytes(32).toString('hex')
+  fs.writeFileSync(tokenPath, token, { encoding: 'utf-8', mode: 0o600 })
+  return token
 }

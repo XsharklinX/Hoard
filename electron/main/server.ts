@@ -2,26 +2,69 @@ import http  from 'http'
 import https from 'https'
 import fs from 'fs'
 import path from 'path'
-import { itemQueries, vaultQueries, folderQueries, tagQueries, getImagesDir } from './db'
+import { itemQueries, vaultQueries, folderQueries, tagQueries, extensionReceiptQueries, getImagesDir } from './db'
 import { BrowserWindow } from 'electron'
 import { fetchUrlMetadata } from './handlers'
 import { archiveWebPage } from './archive'
+import { getLocalApiToken } from './settings'
 
 const PORT = 43210
+const MAX_REQUEST_BYTES = 10 * 1024 * 1024
+
+function readRequestBody(req: http.IncomingMessage, maxBytes = MAX_REQUEST_BYTES): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let body = ''
+    let size = 0
+    req.on('data', chunk => {
+      size += chunk.length
+      if (size > maxBytes) {
+        const error = new Error('Request body too large') as Error & { statusCode?: number }
+        error.statusCode = 413
+        reject(error)
+        req.destroy()
+        return
+      }
+      body += chunk.toString()
+    })
+    req.on('end', () => resolve(body))
+    req.on('error', reject)
+  })
+}
 
 export function startLocalServer() {
+  const localApiToken = getLocalApiToken()
   const server = http.createServer((req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*')
+    const origin = req.headers.origin
+    const isExtensionOrigin = typeof origin === 'string' && /^(chrome|moz)-extension:\/\//.test(origin)
+    if (isExtensionOrigin) res.setHeader('Access-Control-Allow-Origin', origin)
     res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Hoard-Token')
+    res.setHeader('Vary', 'Origin')
 
-    if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return }
+    if (req.method === 'OPTIONS') {
+      res.writeHead(isExtensionOrigin ? 204 : 403)
+      res.end()
+      return
+    }
+
+    // Browser pages must not be able to mutate a local Hoard vault.
+    if (req.method === 'POST' && origin && !isExtensionOrigin) {
+      res.writeHead(403)
+      res.end()
+      return
+    }
+
+    if (req.method === 'POST' && req.headers['x-hoard-token'] !== localApiToken) {
+      res.writeHead(401)
+      res.end()
+      return
+    }
 
     // ── GET /status — popup uses this to check if Hoard is running ────────────
     if (req.method === 'GET' && req.url === '/status') {
       const vaults = vaultQueries.list()
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ ok: true, vaults }))
+      res.end(JSON.stringify({ ok: true, vaults, pairingToken: isExtensionOrigin ? localApiToken : undefined }))
       return
     }
 
@@ -85,9 +128,7 @@ export function startLocalServer() {
 
     // ── POST /add-batch — bulk-save images from extension board import ───────
     if (req.method === 'POST' && pathname === '/add-batch') {
-      let body = ''
-      req.on('data', chunk => { body += chunk.toString() })
-      req.on('end', async () => {
+      readRequestBody(req, 5 * 1024 * 1024).then(async (body) => {
         try {
           const payload   = JSON.parse(body)
           const allVaults = vaultQueries.list() as Array<{ id: number }>
@@ -162,15 +203,13 @@ export function startLocalServer() {
         } catch (err) {
           res.writeHead(500); res.end(JSON.stringify({ error: String(err) }))
         }
-      })
+      }).catch((err) => { res.writeHead((err as any).statusCode || 500); res.end(JSON.stringify({ error: String(err) })) })
       return
     }
 
     // ── POST /bookmarks-import — import Netscape HTML bookmarks file ──────────
     if (req.method === 'POST' && pathname === '/bookmarks-import') {
-      let body = ''
-      req.on('data', chunk => { body += chunk.toString() })
-      req.on('end', async () => {
+      readRequestBody(req).then(async (body) => {
         try {
           const { html, vaultId: rawVaultId } = JSON.parse(body)
           const allVaults = vaultQueries.list() as Array<{ id: number }>
@@ -213,27 +252,40 @@ export function startLocalServer() {
         } catch (err) {
           res.writeHead(500); res.end(JSON.stringify({ error: String(err) }))
         }
-      })
+      }).catch((err) => { res.writeHead((err as any).statusCode || 500); res.end(JSON.stringify({ error: String(err) })) })
       return
     }
 
     // ── POST /add — save a new item from the extension ────────────────────────
     if (req.method === 'POST' && pathname === '/add') {
-      let body = ''
-      req.on('data', chunk => { body += chunk.toString() })
-
-      req.on('end', async () => {
+      readRequestBody(req, 1024 * 1024).then(async (body) => {
         try {
           const payload = JSON.parse(body)
+          const clientId = typeof payload.clientId === 'string' ? payload.clientId.trim() : ''
+          if (clientId && !extensionReceiptQueries.reserve(clientId)) {
+            const receipt = extensionReceiptQueries.get(clientId)
+            if (receipt?.item_id) {
+              itemQueries.update(receipt.item_id, {
+                title: payload.title || undefined,
+                folderId: payload.folderId ?? null,
+                tagIds: Array.isArray(payload.tagIds) ? payload.tagIds : []
+              })
+              notifyRenderer()
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: true, duplicate: true, updated: !!receipt?.item_id }))
+            return
+          }
           const allVaults = vaultQueries.list() as Array<{ id: number }>
           const vaultId   = (payload.vaultId && allVaults.find((v: { id: number }) => v.id === payload.vaultId))
             ? payload.vaultId
             : allVaults[0]?.id ?? 1
           const folderId  = payload.folderId ?? null
           const tagIds    = Array.isArray(payload.tagIds) ? payload.tagIds : []
+          let createdItemId: number | undefined
 
           if (payload.type === 'note') {
-            itemQueries.create({
+            const item = itemQueries.create({
               vaultId,
               type:     'note',
               title:    payload.title   || undefined,
@@ -241,10 +293,11 @@ export function startLocalServer() {
               folderId: folderId || undefined,
               tagIds:   tagIds.length ? tagIds : undefined,
             })
+            createdItemId = (item as { id: number }).id
             notifyRenderer()
 
           } else if (payload.type === 'quote') {
-            itemQueries.create({
+            const item = itemQueries.create({
               vaultId,
               type:        'quote',
               content:     payload.content     || undefined,
@@ -254,6 +307,7 @@ export function startLocalServer() {
               folderId:    folderId || undefined,
               tagIds:      tagIds.length ? tagIds : undefined,
             })
+            createdItemId = (item as { id: number }).id
             notifyRenderer()
 
           } else if (payload.type === 'link' && payload.url) {
@@ -266,6 +320,7 @@ export function startLocalServer() {
               folderId: folderId || undefined,
               tagIds:   tagIds.length ? tagIds : undefined,
             })
+            createdItemId = (item as { id: number }).id
 
             // ── Notify renderer right away so the card appears instantly ─────
             notifyRenderer()
@@ -285,7 +340,7 @@ export function startLocalServer() {
               console.error('Image download failed, saving URL only:', imgErr)
             }
 
-            itemQueries.create({
+            const item = itemQueries.create({
               vaultId,
               type:     'image',
               imagePath: localPath || undefined,
@@ -293,19 +348,73 @@ export function startLocalServer() {
               folderId: folderId || undefined,
               tagIds:   tagIds.length ? tagIds : undefined,
             })
+            createdItemId = (item as { id: number }).id
 
             notifyRenderer()
+          } else if (payload.type === 'code') {
+            const item = itemQueries.create({
+              vaultId,
+              type:     'code',
+              title:    payload.title   || undefined,
+              content:  payload.content || undefined,
+              codeLang: payload.codeLang || undefined,
+              folderId: folderId || undefined,
+              tagIds:   tagIds.length ? tagIds : undefined,
+            })
+            createdItemId = (item as { id: number }).id
+            notifyRenderer()
+          } else {
+            const error = new Error(`Unsupported item type: ${String(payload.type)}`)
+            ;(error as Error & { statusCode?: number }).statusCode = 400
+            throw error
           }
 
+          if (clientId) extensionReceiptQueries.complete(clientId, createdItemId)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ success: true }))
 
         } catch (error) {
           console.error('Hoard server /add error:', error)
-          res.writeHead(500)
+          try {
+            const payload = JSON.parse(body)
+            if (typeof payload.clientId === 'string') extensionReceiptQueries.release(payload.clientId.trim())
+          } catch { /* ignore invalid request bodies */ }
+          const statusCode = (error as Error & { statusCode?: number }).statusCode || 500
+          res.writeHead(statusCode)
           res.end(JSON.stringify({ error: String(error) }))
         }
-      })
+      }).catch((err) => { res.writeHead((err as any).statusCode || 500); res.end(JSON.stringify({ error: String(err) })) })
+    // ── POST /import-extension — import a .json export from extension ───────────
+    } else if (req.method === 'POST' && pathname === '/import-extension') {
+      readRequestBody(req).then((body) => {
+        try {
+          const data     = JSON.parse(body)
+          const items    = Array.isArray(data.items) ? data.items : []
+          const allVaults = vaultQueries.list() as Array<{ id: number }>
+          const vaultId  = allVaults[0]?.id ?? 1
+          let count      = 0
+          for (const item of items) {
+            if (!item.type) continue
+            try {
+              itemQueries.create({
+                vaultId,
+                type:        item.type,
+                title:       item.title       || undefined,
+                content:     item.content     || undefined,
+                url:         item.url         || undefined,
+                attribution: item.attribution || undefined,
+                codeLang:    item.codeLang    || undefined,
+              })
+              count++
+            } catch { /* skip duplicates */ }
+          }
+          notifyRenderer()
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ success: true, imported: count }))
+        } catch (err) {
+          res.writeHead(500); res.end(JSON.stringify({ error: String(err) }))
+        }
+      }).catch((err) => { res.writeHead((err as any).statusCode || 500); res.end(JSON.stringify({ error: String(err) })) })
     } else {
       res.writeHead(404); res.end()
     }

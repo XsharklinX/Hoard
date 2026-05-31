@@ -1,36 +1,46 @@
 {
   "manifest_version": 3,
-  "name": "Save to Hoard",
-  "version": "1.3",
-  "description": "Save links, images and videos directly to your local Hoard vault. Right-click anything on any page.",
+  "name": "__MSG_extensionName__",
+  "version": "2.0",
+  "description": "__MSG_extensionDescription__",
+  "default_locale": "en",
   "permissions": [
     "contextMenus",
     "activeTab",
     "storage",
+    "unlimitedStorage",
+    "alarms",
     "omnibox",
-    "scripting"
+    "scripting",
+    "sidePanel"
   ],
   "omnibox": { "keyword": "hoard" },
   "commands": {
     "_execute_action": {
-      "suggested_key": {
-        "default": "Alt+S",
-        "mac": "Alt+S"
-      },
+      "suggested_key": { "default": "Alt+S", "mac": "Alt+S" },
       "description": "Open Hoard popup"
     },
     "quick-capture": {
-      "suggested_key": {
-        "default": "Alt+Shift+S",
-        "mac": "Alt+Shift+S"
-      },
-      "description": "Quick capture current page to Hoard (no popup)"
+      "suggested_key": { "default": "Alt+Shift+S", "mac": "Alt+Shift+S" },
+      "description": "Quick capture current page to Hoard"
+    },
+    "open-side-panel": {
+      "suggested_key": { "default": "Alt+H", "mac": "Alt+H" },
+      "description": "Open Hoard side panel"
     }
   },
   "action": {
     "default_title": "Hoard (Alt+S)",
-    "default_icon": "icon.png",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
     "default_popup": "popup.html"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
   },
   "host_permissions": [
     "http://127.0.0.1:43210/*"
@@ -43,14 +53,16 @@
     }
   ],
   "web_accessible_resources": [
-    { "resources": ["content.js", "icon.png"], "matches": ["<all_urls>"] }
+    { "resources": ["icon.png"], "matches": ["<all_urls>"], "use_dynamic_url": true }
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "icons": {
-    "16": "icon.png",
-    "48": "icon.png",
-    "128": "icon.png"
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   }
 }

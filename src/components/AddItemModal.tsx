@@ -168,21 +168,21 @@ export function AddItemModal({ open, onClose, initialType }: AddItemModalProps) 
           </button>
         </div>
 
-        {/* Type selector */}
-        <div className="flex gap-1 px-5 pt-4 shrink-0">
+        {/* Type selector — grid 3×2 so it never overflows */}
+        <div className="grid grid-cols-3 gap-1.5 px-5 pt-4 shrink-0">
           {TYPES.map(({ value, label, Icon }) => (
             <button
               key={value}
               onClick={() => setType(value)}
               className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize',
+                'flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium transition-colors',
                 type === value
                   ? 'bg-gold/15 text-gold border border-gold/30'
-                  : 'bg-card text-text-secondary hover:text-text-primary border border-transparent'
+                  : 'bg-card text-text-secondary hover:text-text-primary border border-transparent hover:border-border/60'
               )}
             >
-              <Icon className="w-3.5 h-3.5" />
-              {label}
+              <Icon className="w-3.5 h-3.5 shrink-0" />
+              <span className="capitalize">{label}</span>
             </button>
           ))}
         </div>
