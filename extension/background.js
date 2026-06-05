@@ -254,30 +254,29 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 })
 
-// ── Message from content script (selection bubble) ────────────────────────────
-
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.action !== 'hoard:save-selection') return
-  const text      = msg.text       || ''
-  const pageUrl   = msg.pageUrl    || ''
-  const pageTitle = msg.pageTitle  || pageUrl
-  const codeLang  = msg.codeLang   || null
-  const isCode    = msg.isCode     || false
-  const saveAsNote = msg.saveAsNote || false
-  const snippet   = text.slice(0, 80) + (text.length > 80 ? '…' : '')
-
-  if (isCode) {
-    sendToHoard({ type: 'code', content: text, title: snippet, codeLang })
-  } else if (saveAsNote) {
-    sendToHoard({ type: 'note', content: text, title: snippet })
-  } else {
-    sendToHoard({ type: 'quote', content: text, attribution: pageTitle, url: pageUrl, title: snippet })
-  }
-})
-
-// ── Export trigger ────────────────────────────────────────────────────────────
+// ── All message handlers (single listener — Chrome best practice) ────────────
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  // Selection bubble save (fire & forget — no sendResponse needed)
+  if (msg.action === 'hoard:save-selection') {
+    const text      = msg.text       || ''
+    const pageUrl   = msg.pageUrl    || ''
+    const pageTitle = msg.pageTitle  || pageUrl
+    const codeLang  = msg.codeLang   || null
+    const isCode    = msg.isCode     || false
+    const saveAsNote = msg.saveAsNote || false
+    const snippet   = text.slice(0, 80) + (text.length > 80 ? '…' : '')
+    if (isCode) {
+      sendToHoard({ type: 'code', content: text, title: snippet, codeLang })
+    } else if (saveAsNote) {
+      sendToHoard({ type: 'note', content: text, title: snippet })
+    } else {
+      sendToHoard({ type: 'quote', content: text, attribution: pageTitle, url: pageUrl, title: snippet })
+    }
+    return false  // no async response needed
+  }
+
+
   if (msg.action === 'hoard:save-item') {
     sendToHoard(msg.payload)
       .then((item) => sendResponse({ ok: true, item }))

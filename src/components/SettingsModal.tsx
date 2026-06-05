@@ -575,15 +575,13 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               </>
             ) : (
               <div className="flex flex-col gap-2">
-                <p className="text-xs text-text-muted leading-relaxed">
-                  Protect your vault with AES-256-GCM encryption. You'll need the password every time Hoard starts.
-                </p>
-                <input type="password" placeholder="Master password (min. 8 chars)" value={encPw} onChange={(e) => setEncPw(e.target.value)} className={inputCls} />
-                <input type="password" placeholder="Confirm password" value={encPwConf} onChange={(e) => setEncPwConf(e.target.value)} className={inputCls} />
-                <button onClick={handleEnableEncryption}
-                  className="flex items-center gap-2 self-start px-3 py-1.5 rounded-lg text-xs bg-gold/10 border border-gold/20 text-gold hover:bg-gold/20 transition-colors">
-                  <Lock className="w-3.5 h-3.5" />Enable encryption
-                </button>
+                <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-500/8 border border-amber-500/20">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-300/80 leading-relaxed">
+                    <strong className="text-amber-300">Coming in v2.0</strong> — AES-256-GCM encryption is planned but not yet implemented.
+                    Your vault data is currently stored unencrypted. Use OS-level disk encryption (BitLocker, FileVault) in the meantime.
+                  </p>
+                </div>
               </div>
             )}
 

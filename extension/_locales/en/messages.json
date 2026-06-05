@@ -66,5 +66,18 @@
   "onboardingSyncBody": { "message": "When Hoard Desktop is running, pending captures sync to the local app on this computer." },
   "onboardingPermissionsTitle": { "message": "Permission scope" },
   "onboardingPermissionsBody": { "message": "Page access powers the selection bubble and starts gallery scanning only when you request it." },
-  "onboardingDone": { "message": "Start saving" }
+  "onboardingDone": { "message": "Start saving" },
+  "stats": { "message": "Stats" },
+  "retryAll": { "message": "Retry all" },
+  "retryPendingAll": { "message": "Retry all pending" },
+  "editItem": { "message": "Edit item" },
+  "noResults": { "message": "No results found" },
+  "items": { "message": "items" },
+  "deleteItemConfirm": { "message": "Delete this item?" },
+  "copyMarkdown": { "message": "Copy as Markdown" },
+  "alreadySaved": { "message": "Already saved in Hoard" },
+  "readOffline": { "message": "Read offline" },
+  "thisWeek": { "message": "this week" },
+  "today": { "message": "today" },
+  "streak": { "message": "day streak" }
 }
